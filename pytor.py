@@ -6,6 +6,7 @@ import random
 import re
 import socket
 import requests
+import socks # PySocks import test
 
 # --------------------------------------------------------------------------
 # Tor and IP Management Utilities
