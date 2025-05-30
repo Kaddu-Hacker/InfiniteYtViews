@@ -231,15 +231,37 @@ def install_requirements_and_tor():
                 print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor installed successfully using 'apt'.{Colors.ENDC}")
             tor_installed_successfully = True
             # Attempt to start Tor service if installed via apt
-            print(f"{Colors.OKBLUE}   Attempting to start Tor service (systemctl start tor)...{Colors.ENDC}")
+            print(f"{Colors.OKBLUE}   Attempting to start Tor service...{Colors.ENDC}")
             try:
+                print(f"{Colors.GRAY}     Trying with 'systemctl start tor'...{Colors.ENDC}")
                 subprocess.check_call(['sudo', 'systemctl', 'start', 'tor'])
                 print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor service started via systemctl.{Colors.ENDC}")
-            except subprocess.CalledProcessError as e_start:
-                 print(f"{Colors.WARNING}{EMOJIS['error']} Failed to start Tor service using systemctl: {e_start}. It might be running or requires manual start.{Colors.ENDC}")
+            except subprocess.CalledProcessError as e_systemctl:
+                print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl start tor' failed: {e_systemctl}.{Colors.ENDC}")
+                if shutil.which('service'): # Check if 'service' command exists
+                    print(f"{Colors.OKBLUE}     Attempting fallback with 'service tor start'...{Colors.ENDC}")
+                    try:
+                        subprocess.check_call(['sudo', 'service', 'tor', 'start'])
+                        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor service started via 'service' command.{Colors.ENDC}")
+                    except subprocess.CalledProcessError as e_service:
+                        print(f"{Colors.WARNING}{EMOJIS['error']} 'service tor start' also failed: {e_service}. Tor might be running or requires manual start/check.{Colors.ENDC}")
+                    except FileNotFoundError:
+                        print(f"{Colors.WARNING}{EMOJIS['error']} 'service' command found but 'tor' service script might be missing or not executable.{Colors.ENDC}")
+                else:
+                    print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl' failed and 'service' command not found. Cannot start Tor automatically. Please ensure it's running.{Colors.ENDC}")
             except FileNotFoundError:
-                 print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl' not found. Cannot start Tor service automatically. Please ensure it's running.{Colors.ENDC}")
-
+                 print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl' command not found.{Colors.ENDC}")
+                 if shutil.which('service'): # Check if 'service' command exists
+                    print(f"{Colors.OKBLUE}     Attempting fallback with 'service tor start'...{Colors.ENDC}")
+                    try:
+                        subprocess.check_call(['sudo', 'service', 'tor', 'start'])
+                        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor service started via 'service' command.{Colors.ENDC}")
+                    except subprocess.CalledProcessError as e_service:
+                        print(f"{Colors.WARNING}{EMOJIS['error']} 'service tor start' failed: {e_service}. Tor might be running or requires manual start/check.{Colors.ENDC}")
+                    except FileNotFoundError:
+                         print(f"{Colors.WARNING}{EMOJIS['error']} 'service' command found but 'tor' service script might be missing or not executable.{Colors.ENDC}")
+                 else:
+                    print(f"{Colors.WARNING}{EMOJIS['error']} Neither 'systemctl' nor 'service' command found. Cannot start Tor automatically. Please ensure it's running.{Colors.ENDC}")
 
         except subprocess.CalledProcessError as e:
             print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Failed to install Tor using 'apt': {e}{Colors.ENDC}")
@@ -272,67 +294,121 @@ def install_requirements_and_tor():
 
 def get_user_links():
     """
-    Prompts the user for link details (URL, type, length).
+    Prompts the user for link details (URL, type, length) with an improved workflow.
+    First asks for the type of content (videos, shorts, or mixed).
+    Then, for each batch of a specific type, it can ask for a default length.
     Returns a list of link dictionaries.
     """
-    print(f"\n{Colors.HEADER}{EMOJIS['link']} Let's add your videos/shorts! {EMOJIS['link']}{Colors.ENDC}")
+    print(f"\n{Colors.HEADER}{EMOJIS['link']} Let's add your content! {EMOJIS['link']}{Colors.ENDC}")
     links = []
+    link_id_counter = 0
+
     while True:
-        try:
-            num_links_str = input(f"{Colors.OKCYAN}{EMOJIS['prompt']} How many videos/shorts? (Enter a number, or 'help'): {Colors.ENDC}").strip()
-            if num_links_str.lower() == 'help':
-                print(HELP_TEXT)
-                continue
-            num_links = int(num_links_str) if num_links_str else 1
-            if num_links < 1:
-                print(f"{Colors.WARNING}{EMOJIS['error']} Please enter a positive number.{Colors.ENDC}")
-                continue
-            break
-        except ValueError:
-            print(f"{Colors.WARNING}{EMOJIS['error']} Invalid input. Please enter a number.{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}What kind of content do you want to add?{Colors.ENDC}")
+        print(f"  1. Only YouTube Videos {EMOJIS['video']}")
+        print(f"  2. Only YouTube Shorts {EMOJIS['short']}")
+        print(f"  3. Both Videos and Shorts (Mixed)")
+        content_choice_str = input(f"{Colors.OKCYAN}{EMOJIS['prompt']} Enter your choice (1-3) [Press Enter for 1]: {Colors.ENDC}").strip()
+        if content_choice_str.lower() == 'help':
+            print(HELP_TEXT)
+            continue
+        
+        content_choice = '1' # Default to Videos
+        if content_choice_str in ['1', '2', '3']:
+            content_choice = content_choice_str
+        elif not content_choice_str: # Enter for default
+            pass # Keeps default '1'
+        else:
+            print(f"{Colors.WARNING}{EMOJIS['error']} Invalid choice. Please enter 1, 2, or 3.{Colors.ENDC}")
+            continue
+        break
 
-    for i in range(num_links):
-        print(f"\n{Colors.OKBLUE}--- Link #{i+1} ---{Colors.ENDC}")
-        while True:
-            link_url = input(f"  {EMOJIS['prompt']} Enter URL for link #{i+1}: ").strip()
-            if link_url.lower() == 'help':
-                print(HELP_TEXT)
-                continue
-            if not link_url:
-                 print(f"{Colors.WARNING}{EMOJIS['error']} URL cannot be empty.{Colors.ENDC}")
-                 continue
-            if not (link_url.startswith("http://") or link_url.startswith("https://")):
-                print(f"{Colors.WARNING}{EMOJIS['error']} Invalid URL format. Must start with http:// or https://{Colors.ENDC}")
-                continue
-            break
+    content_types_to_add = []
+    if content_choice == '1':
+        content_types_to_add.append(('video', EMOJIS['video']))
+    elif content_choice == '2':
+        content_types_to_add.append(('short', EMOJIS['short']))
+    elif content_choice == '3':
+        content_types_to_add.append(('video', EMOJIS['video']))
+        content_types_to_add.append(('short', EMOJIS['short']))
+
+    for content_type, content_emoji in content_types_to_add:
+        print(f"\n{Colors.HEADER}--- Adding {content_type.capitalize()}s {content_emoji} ---{Colors.ENDC}")
         
         while True:
-            vtype_str = input(f"  {EMOJIS['prompt']} Is this a Video or a Short? (v/s) [Press Enter for Video]: ").strip().lower()
-            if vtype_str == 'help':
-                print(HELP_TEXT)
-                continue
-            vtype = vtype_str if vtype_str in ['v', 's'] else 'v'
-            break
-        
-        link_type = 'video' if vtype == 'v' else 'short'
-        default_length = 60 if link_type == 'short' else 300
-        min_length = 10 if link_type == 'short' else 60
-        length_prompt = f"  {EMOJIS['prompt']} Enter {link_type} length in seconds [Press Enter for {default_length}s]: "
-
-        while True:
-            length_str = input(length_prompt).strip()
-            if length_str.lower() == 'help':
-                print(HELP_TEXT)
-                continue
             try:
-                length_sec = int(length_str) if length_str else default_length
-                if length_sec < min_length:
-                    print(f"{Colors.WARNING}{EMOJIS['error']} Minimum length for a {link_type} is {min_length}s. Please enter a realistic length.{Colors.ENDC}")
+                num_items_str = input(f"{Colors.OKCYAN}{EMOJIS['prompt']} How many {content_type}s? (Enter a number, 0 to skip): {Colors.ENDC}").strip()
+                if num_items_str.lower() == 'help':
+                    print(HELP_TEXT)
                     continue
+                num_items = int(num_items_str) if num_items_str else 0
+                if num_items < 0:
+                    print(f"{Colors.WARNING}{EMOJIS['error']} Please enter a non-negative number.{Colors.ENDC}")
+                    continue
+                if num_items == 0:
+                    print(f"{Colors.OKBLUE}Skipping {content_type}s.{Colors.ENDC}")
+                    break 
                 break
             except ValueError:
-                print(f"{Colors.WARNING}{EMOJIS['error']} Invalid input. Please enter a number for length.{Colors.ENDC}")
-        links.append({'url': link_url, 'type': link_type, 'length': length_sec, 'id': i})
+                print(f"{Colors.WARNING}{EMOJIS['error']} Invalid input. Please enter a number.{Colors.ENDC}")
+        if num_items == 0: continue
+
+        # Ask for a default length for this batch of content_type
+        default_length_for_batch = None
+        min_length = 10 if content_type == 'short' else 60
+        suggested_length = 60 if content_type == 'short' else 300
+
+        while True:
+            use_default_len_str = input(f"  {EMOJIS['prompt']} Set a default length for these {num_items} {content_type}s? (yes/no) [Enter for no]: {Colors.ENDC}").strip().lower()
+            if use_default_len_str == 'help': print(HELP_TEXT); continue
+            if use_default_len_str in ['y', 'yes']:
+                while True:
+                    length_str = input(f"    {EMOJIS['prompt']} Enter default length for {content_type}s in seconds [Enter for {suggested_length}s]: {Colors.ENDC}").strip()
+                    if length_str.lower() == 'help': print(HELP_TEXT); continue
+                    try:
+                        default_length_for_batch = int(length_str) if length_str else suggested_length
+                        if default_length_for_batch < min_length:
+                            print(f"{Colors.WARNING}{EMOJIS['error']} Min length for {content_type} is {min_length}s.{Colors.ENDC}")
+                            default_length_for_batch = None # Reset
+                            continue
+                        break
+                    except ValueError:
+                        print(f"{Colors.WARNING}{EMOJIS['error']} Invalid number for length.{Colors.ENDC}")
+                break
+            elif use_default_len_str in ['n', 'no', '']:
+                break
+            else:
+                print(f"{Colors.WARNING}{EMOJIS['error']} Invalid choice. Please enter 'yes' or 'no'.{Colors.ENDC}")
+
+        for i in range(num_items):
+            print(f"\n{Colors.OKBLUE}--- {content_type.capitalize()} #{i+1} ---{Colors.ENDC}")
+            while True:
+                link_url = input(f"  {EMOJIS['prompt']} Enter URL for {content_type} #{i+1}: ").strip()
+                if link_url.lower() == 'help': print(HELP_TEXT); continue
+                if not link_url: print(f"{Colors.WARNING}{EMOJIS['error']} URL cannot be empty.{Colors.ENDC}"); continue
+                if not (link_url.startswith("http://") or link_url.startswith("https://")):
+                    print(f"{Colors.WARNING}{EMOJIS['error']} Invalid URL. Must start with http:// or https://{Colors.ENDC}"); continue
+                break
+            
+            current_length_sec = default_length_for_batch
+            if current_length_sec is None: # If no batch default, ask individually
+                length_prompt = f"  {EMOJIS['prompt']} Enter {content_type} length in seconds [Enter for {suggested_length}s]: "
+                while True:
+                    length_str = input(length_prompt).strip()
+                    if length_str.lower() == 'help': print(HELP_TEXT); continue
+                    try:
+                        current_length_sec = int(length_str) if length_str else suggested_length
+                        if current_length_sec < min_length:
+                            print(f"{Colors.WARNING}{EMOJIS['error']} Min length for {content_type} is {min_length}s.{Colors.ENDC}"); continue
+                        break
+                    except ValueError:
+                        print(f"{Colors.WARNING}{EMOJIS['error']} Invalid input. Please enter a number for length.{Colors.ENDC}")
+            
+            links.append({'url': link_url, 'type': content_type, 'length': current_length_sec, 'id': link_id_counter})
+            link_id_counter += 1
+            
+    if not links:
+        print(f"{Colors.WARNING}{EMOJIS['info']} No content was added.{Colors.ENDC}")
     return links
 
 def get_views_per_link():
