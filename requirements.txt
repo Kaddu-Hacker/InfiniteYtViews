@@ -1,0 +1,5 @@
+requests
+stem
+PySocks
+colorama
+tqdm
