@@ -112,11 +112,6 @@ This project is based in part on [PyTor IP Changer](https://github.com/G0ldenRat
 - Configurable intervals for IP rotation
 - Can run in an infinite loop for continuous IP changes
 
-#### Youtube Tutorial
-
-How to make it work for Firefox or other web browsers, connect to port 9050, enable SOCKS5, code explanation and much more:
-
-[Youtube Video Link](https://www.youtube.com/watch?v=lH5h_PO5hFI&lc=UgylLkXPRhuqQEwbb5h4AaABAg)
 
 ## 🤝 Contributing
 
