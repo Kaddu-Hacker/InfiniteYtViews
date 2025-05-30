@@ -10,6 +10,7 @@ import threading
 import signal
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import shutil # Added for shutil.which
 
 # Import PyTor functions
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "PyTor-IP-Changer-main"))
@@ -180,22 +181,22 @@ def simulate_view(link, tor_port, watch_time):
 def install_requirements_and_tor():
     """
     Installs required Python packages from requirements.txt and ensures Tor is installed and running.
+    It will try 'apt' for Tor installation on Linux first, then fallback/other methods.
     """
     print(f"\n{Colors.HEADER}{EMOJIS['star']} System Setup {EMOJIS['star']}{Colors.ENDC}")
     try:
         requirements_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
         if not os.path.exists(requirements_file):
             print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] requirements.txt not found! Please create it.{Colors.ENDC}")
-            # Attempt to create a basic one if it's missing, though it might not be complete.
             print(f"{Colors.WARNING}{EMOJIS['info']} Attempting to create a basic requirements.txt...{Colors.ENDC}")
             with open(requirements_file, 'w') as f:
-                f.write("requests\n") # Add other known essential deps if any
-                f.write("PySocks\n") # For SOCKS proxy support with requests if Tor needs it explicitly
+                f.write("requests\n")
+                f.write("PySocks\n")
+                f.write("stem\n") # Added stem as it's used by pytor
+                f.write("colorama\n") # Added colorama for colors
             print(f"{Colors.OKGREEN}{EMOJIS['success']} Basic requirements.txt created. Please verify its contents.{Colors.ENDC}")
 
         print(f"{Colors.OKBLUE}{EMOJIS['wait']} Installing/updating Python packages from {requirements_file}...{Colors.ENDC}")
-        # Ensure pip is up to date
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
         # Install requirements
         subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', requirements_file])
         print(f"{Colors.OKGREEN}{EMOJIS['success']} Python packages installed/updated successfully.{Colors.ENDC}")
@@ -208,15 +209,66 @@ def install_requirements_and_tor():
         sys.exit(1)
 
     print(f"\n{Colors.OKBLUE}{EMOJIS['wait']} Checking and ensuring Tor service...{Colors.ENDC}")
-    try:
-        pytor.check_dependencies() # Installs Tor if not present
-        pytor.start_tor()        # Starts Tor service
-        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor setup checks completed.{Colors.ENDC}")
-    except Exception as e:
-        print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Failed during Tor setup: {e}{Colors.ENDC}")
-        print(f"{Colors.WARNING}Please ensure Tor can be installed and started. You might need to run 'sudo apt-get install tor' or similar manually, then restart the script.{Colors.ENDC}")
-        # Consider not exiting, to allow users to fix Tor manually and retry, or if Tor is optional for some parts.
-        # sys.exit(1) 
+    tor_installed_successfully = False
+
+    # Attempt 1: Install Tor using apt (for Debian-based Linux)
+    if os.name == 'posix' and shutil.which('apt'): # Check if 'apt' command exists
+        print(f"{Colors.OKBLUE}{EMOJIS['info']} Attempting to install Tor using 'apt' package manager...{Colors.ENDC}")
+        try:
+            # Check if Tor is already installed via apt
+            tor_check_process = subprocess.run(['apt', '-qq', 'list', 'tor'], capture_output=True, text=True)
+            if "tor/" in tor_check_process.stdout and "[installed]" in tor_check_process.stdout:
+                 print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor is already installed via apt.{Colors.ENDC}")
+                 tor_installed_successfully = True
+            else:
+                print(f"{Colors.WARNING} Tor not found via apt or not marked as installed. Attempting installation...{Colors.ENDC}")
+                # Update package lists
+                print(f"{Colors.GRAY}   Updating package lists (apt update)...{Colors.ENDC}")
+                subprocess.check_call(['sudo', 'apt-get', 'update', '-y'])
+                # Install Tor
+                print(f"{Colors.GRAY}   Installing Tor (apt-get install tor)...{Colors.ENDC}")
+                subprocess.check_call(['sudo', 'apt-get', 'install', 'tor', '-y'])
+                print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor installed successfully using 'apt'.{Colors.ENDC}")
+            tor_installed_successfully = True
+            # Attempt to start Tor service if installed via apt
+            print(f"{Colors.OKBLUE}   Attempting to start Tor service (systemctl start tor)...{Colors.ENDC}")
+            try:
+                subprocess.check_call(['sudo', 'systemctl', 'start', 'tor'])
+                print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor service started via systemctl.{Colors.ENDC}")
+            except subprocess.CalledProcessError as e_start:
+                 print(f"{Colors.WARNING}{EMOJIS['error']} Failed to start Tor service using systemctl: {e_start}. It might be running or requires manual start.{Colors.ENDC}")
+            except FileNotFoundError:
+                 print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl' not found. Cannot start Tor service automatically. Please ensure it's running.{Colors.ENDC}")
+
+
+        except subprocess.CalledProcessError as e:
+            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Failed to install Tor using 'apt': {e}{Colors.ENDC}")
+            print(f"{Colors.WARNING}   'apt' method failed. Will try other methods if available.{Colors.ENDC}")
+        except FileNotFoundError:
+            print(f"{Colors.WARNING}{EMOJIS['error']} 'sudo' or 'apt-get' command not found. Cannot use 'apt' method.{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] An unexpected error occurred during 'apt' Tor installation: {e}{Colors.ENDC}")
+
+    # Attempt 2: Fallback to pytor's internal checks (e.g., for Windows or if apt failed/unavailable)
+    if not tor_installed_successfully:
+        print(f"\n{Colors.OKBLUE}{EMOJIS['info']} Trying 'pytor' internal Tor setup (e.g., for Windows or as fallback)...{Colors.ENDC}")
+        try:
+            pytor.check_dependencies() # This might install Tor on Windows or check for it on other systems
+            pytor.start_tor()        # Starts Tor service using methods in pytor.py
+            print(f"{Colors.OKGREEN}{EMOJIS['success']} 'pytor' internal Tor setup checks completed.{Colors.ENDC}")
+            tor_installed_successfully = True # Assume success if no exceptions from pytor
+        except Exception as e:
+            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Failed during 'pytor' internal Tor setup: {e}{Colors.ENDC}")
+
+    if not tor_installed_successfully:
+        print(f"{Colors.FAIL}{EMOJIS['error']} [CRITICAL ERROR] All attempts to install/start Tor failed.{Colors.ENDC}")
+        print(f"{Colors.WARNING}Please ensure Tor can be installed and started on your system.{Colors.ENDC}")
+        print(f"{Colors.WARNING}  - On Linux, you might need to run 'sudo apt-get install tor' or similar manually.{Colors.ENDC}")
+        print(f"{Colors.WARNING}  - On Windows, ensure the Tor Browser Bundle is installed or that 'pytor' can manage Tor.{Colors.ENDC}")
+        print(f"{Colors.WARNING}After manual installation/fix, please restart the script.{Colors.ENDC}")
+        sys.exit(1)
+    else:
+        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor setup appears successful.{Colors.ENDC}")
 
 def get_user_links():
     """
