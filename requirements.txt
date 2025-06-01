@@ -1,5 +1,4 @@
 requests
-stem
 PySocks
-colorama
-tqdm
+pyfiglet
+rich
