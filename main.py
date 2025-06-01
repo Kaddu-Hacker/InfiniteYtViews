@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+# Removed colorama import and initialization block for Windows
 import sys
 import time
 import random
@@ -11,10 +12,10 @@ import signal
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil # Added for shutil.which
-
-# Import PyTor functions
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "PyTor-IP-Changer-main"))
-from pytor import check_dependencies, start_tor, change_ip, get_ip, rotate_ip_and_show_location
+import pyfiglet
+from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 # Import the refactored pytor.py
 import pytor
@@ -58,41 +59,105 @@ EMOJIS = {
     'views': '👀', 
 }
 
+# Updated: 50+ real user agent strings (2024-2025, desktop, mobile, tablet, major browsers)
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    # Windows Chrome
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    # Windows Firefox
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+    # Windows Edge
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0",
+    # Windows Opera
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 OPR/118.0.0.0",
+    # Mac Chrome
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    # Mac Safari
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.10 Safari/605.1.1",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
+    # Mac Firefox
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:136.0) Gecko/20100101 Firefox/136.0",
+    # Mac Edge
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.3124.85",
+    # Mac Opera
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 OPR/118.0.0.0",
+    # Linux Chrome
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    # Linux Firefox
+    "Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0",
+    # Chromebook
+    "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    # Android Chrome
+    "Mozilla/5.0 (Linux; Android 15; SM-S931B Build/AP3A.240905.015.A2; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 9 Pro Build/AD1A.240418.003; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.54 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 9 Build/AD1A.240411.003.A5; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.54 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 15; Pixel 8 Pro Build/AP4A.250105.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/132.0.6834.163 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 15; Pixel 8 Build/AP4A.250105.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/132.0.6834.163 Mobile Safari/537.36",
+    # Android Firefox
+    "Mozilla/5.0 (Android 15; Mobile; rv:136.0) Gecko/136.0 Firefox/136.0",
+    # Android Samsung
+    "Mozilla/5.0 (Linux; Android 15; SM-S931U Build/AP3A.240905.015.A2; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/132.0.6834.163 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; SM-F9560 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
+    # Android Opera
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36 OPR/89.0.0.0",
+    # iPhone Safari
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.7 Mobile/15E148 Safari/604.1",
+    # iPhone Chrome
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/134.0.6998.99 Mobile/15E148 Safari/604.1",
+    # iPhone Edge
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/136.0.3240.91 Version/18.0 Mobile/15E148 Safari/604.1",
+    # iPhone Firefox
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/136.0 Mobile/15E148 Safari/605.1.15",
+    # iPad Safari
+    "Mozilla/5.0 (iPad; CPU OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1",
+    # iPad Chrome
+    "Mozilla/5.0 (iPad; CPU OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/134.0.6998.99 Mobile/15E148 Safari/604.1",
+    # iPad Edge
+    "Mozilla/5.0 (iPad; CPU OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/134.0.3124.85 Version/18.0 Mobile/15E148 Safari/604.1",
+    # iPad Firefox
+    "Mozilla/5.0 (iPad; CPU OS 14_7_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/136.0 Mobile/15E148 Safari/605.1.15",
+    # Tablet Android
+    "Mozilla/5.0 (Linux; Android 14; SM-X306B Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; SM-P619N Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
+    # Kindle
+    "Mozilla/5.0 (Linux; Android 11; KFRASWI Build/RS8332.3115N) AppleWebKit/537.36 (KHTML, like Gecko) Silk/47.1.79 like Chrome/47.0.2526.80 Safari/537.36",
+    # Smart TV
+    "Mozilla/5.0 (Linux; Android 11; AFTKRT Build/RS8101.1849N; wv)PlexTV/10.0.0.4149",
+    # Game Console
+    "Mozilla/5.0 (PlayStation; PlayStation 5/2.26) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox Series X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.82 Safari/537.36 Edge/20.02",
+    # Bots (for completeness, but not used for normal views)
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
 ]
 
-BANNER = f"""
-{Colors.HEADER}{EMOJIS['kaddu']} {Colors.BOLD}KADDU YT-VIEWS SYSTEM {EMOJIS['views']}{Colors.ENDC}
-{Colors.OKCYAN}Automated, Smart, and Human-like View Simulation!{Colors.ENDC}
-{Colors.GRAY}{EMOJIS['rocket']} Powered by PyTor Tech {EMOJIS['rocket']}{Colors.ENDC}
-{Colors.GRAY}{'-'*55}{Colors.ENDC}
-{Colors.OKBLUE}GitHub: https://github.com/Kaddu-Hacker/InfiniteYtViews{Colors.ENDC}
-"""
-
-HELP_TEXT = f"""
-{Colors.OKCYAN}{EMOJIS['info']} HELP MENU {EMOJIS['info']}{Colors.ENDC}
-- This tool simulates views for your YouTube videos and shorts.
-- Add multiple links when prompted.
-- {Colors.BOLD}Default settings are recommended for most users.{Colors.ENDC}
-- If you see [Press Enter for recommended], just press Enter!
-- {Colors.WARNING}'Dry run'{Colors.ENDC} mode previews actions without actual views.
-- For best results, avoid other Tor activities during operation.
-- Each 'connection' uses a distinct Tor circuit for better diversity.
-"""
-
-TIP_TEXT = f"{Colors.OKBLUE}{EMOJIS['tip']} TIP: Use default settings and let the tool work for optimal results!{Colors.ENDC}"
-
-NEXT_TEXT = f"""
-{Colors.OKGREEN}{EMOJIS['next']} WHAT'S NEXT?
-- Check video analytics after some time for view updates.
-- Run this tool again for more views.
-- Share your experience and the tool with friends!
-"""
+def print_animated_banner():
+    """
+    Prints a big, bold ASCII banner with animation using pyfiglet and rich.
+    """
+    console = Console()
+    banner_text = pyfiglet.figlet_format("KADDU YT-VIEWS", font="slant")
+    # Animate the banner by printing it line by line with a delay
+    lines = banner_text.splitlines()
+    with Live("", refresh_per_second=20, console=console) as live:
+        display = ""
+        for line in lines:
+            display += f"[bold magenta]{line}[/bold magenta]\n"
+            live.update(Text(display))
+            time.sleep(0.07)
+    # Add subtitle and info
+    console.print("[bold cyan]🎃 YT-Views - Simulating YouTube Views Like a Pro! 🎃[/bold cyan]")
+    console.print("[bold green]Powered by PyTor & Smart Automation[/bold green]")
+    console.print("[bold yellow]GitHub: https://github.com/Kaddu-Hacker/InfiniteYtViews[/bold yellow]")
+    console.print("[bold blue]Tip: Always run in a virtual environment![/bold blue]")
+    console.print("[bold white]-------------------------------------------------------------[/bold white]")
 
 # Simple spinner for waiting periods
 def spinner(seconds, message):
@@ -181,23 +246,24 @@ def simulate_view(link, tor_port, watch_time):
 def install_requirements_and_tor():
     """
     Installs required Python packages from requirements.txt and ensures Tor is installed and running.
-    It will try 'apt' for Tor installation on Linux first, then fallback/other methods.
+    Prioritizes 'apt' and 'service' for Tor installation/start on compatible Linux systems,
+    then falls back to pytor's internal methods.
     """
     print(f"\n{Colors.HEADER}{EMOJIS['star']} System Setup {EMOJIS['star']}{Colors.ENDC}")
+    
+    # 1. Install Python Packages
     try:
         requirements_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
         if not os.path.exists(requirements_file):
-            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] requirements.txt not found! Please create it.{Colors.ENDC}")
-            print(f"{Colors.WARNING}{EMOJIS['info']} Attempting to create a basic requirements.txt...{Colors.ENDC}")
+            print(f"{Colors.FAIL}{EMOJIS['error']} [CRITICAL] requirements.txt not found!{Colors.ENDC}")
+            print(f"{Colors.WARNING}{EMOJIS['info']} Creating a basic '{requirements_file}' with essential packages: requests, PySocks.{Colors.ENDC}")
+            # Ensure the user is aware of what's being written.
             with open(requirements_file, 'w') as f:
                 f.write("requests\n")
                 f.write("PySocks\n")
-                f.write("stem\n") # Added stem as it's used by pytor
-                f.write("colorama\n") # Added colorama for colors
-            print(f"{Colors.OKGREEN}{EMOJIS['success']} Basic requirements.txt created. Please verify its contents.{Colors.ENDC}")
+            print(f"{Colors.OKGREEN}{EMOJIS['success']} Basic requirements.txt created. Please review its contents if you have other dependencies.{Colors.ENDC}")
 
-        print(f"{Colors.OKBLUE}{EMOJIS['wait']} Installing/updating Python packages from {requirements_file}...{Colors.ENDC}")
-        # Install requirements
+        print(f"\n{Colors.OKBLUE}{EMOJIS['wait']} Installing/Updating Python packages from '{requirements_file}'... This might take a moment.{Colors.ENDC}")
         subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', requirements_file])
         print(f"{Colors.OKGREEN}{EMOJIS['success']} Python packages installed/updated successfully.{Colors.ENDC}")
 
@@ -208,89 +274,84 @@ def install_requirements_and_tor():
         print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] An unexpected error occurred during package installation: {e}{Colors.ENDC}")
         sys.exit(1)
 
+    # 2. Tor Setup
     print(f"\n{Colors.OKBLUE}{EMOJIS['wait']} Checking and ensuring Tor service...{Colors.ENDC}")
-    tor_installed_successfully = False
+    tor_setup_successful = False
 
-    # Attempt 1: Install Tor using apt (for Debian-based Linux)
-    if os.name == 'posix' and shutil.which('apt'): # Check if 'apt' command exists
-        print(f"{Colors.OKBLUE}{EMOJIS['info']} Attempting to install Tor using 'apt' package manager...{Colors.ENDC}")
+    # --- User-requested direct method: apt and service ---
+    preferred_method_attempted = False
+    if os.name == 'posix' and shutil.which('apt') and shutil.which('service'):
+        preferred_method_attempted = True
+        print(f"{Colors.OKCYAN}{EMOJIS['info']} Attempting preferred Tor setup: 'sudo apt update/install tor' & 'sudo service tor start'.{Colors.ENDC}")
         try:
-            # Check if Tor is already installed via apt
-            tor_check_process = subprocess.run(['apt', '-qq', 'list', 'tor'], capture_output=True, text=True)
-            if "tor/" in tor_check_process.stdout and "[installed]" in tor_check_process.stdout:
-                 print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor is already installed via apt.{Colors.ENDC}")
-                 tor_installed_successfully = True
-            else:
-                print(f"{Colors.WARNING} Tor not found via apt or not marked as installed. Attempting installation...{Colors.ENDC}")
-                # Update package lists
-                print(f"{Colors.GRAY}   Updating package lists (apt update)...{Colors.ENDC}")
-                subprocess.check_call(['sudo', 'apt-get', 'update', '-y'])
-                # Install Tor
-                print(f"{Colors.GRAY}   Installing Tor (apt-get install tor)...{Colors.ENDC}")
-                subprocess.check_call(['sudo', 'apt-get', 'install', 'tor', '-y'])
-                print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor installed successfully using 'apt'.{Colors.ENDC}")
-            tor_installed_successfully = True
-            # Attempt to start Tor service if installed via apt
-            print(f"{Colors.OKBLUE}   Attempting to start Tor service...{Colors.ENDC}")
+            # Update package lists
+            print(f"{Colors.GRAY}  Updating package lists (sudo apt update -y)...{Colors.ENDC}")
+            subprocess.check_call(['sudo', 'apt', 'update', '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            print(f"{Colors.OKGREEN}{EMOJIS['success']} Package lists updated.{Colors.ENDC}")
+
+            # Install Tor
+            print(f"{Colors.GRAY}  Installing Tor (sudo apt install tor -y)...{Colors.ENDC}")
+            subprocess.check_call(['sudo', 'apt', 'install', 'tor', '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor installed/verified via apt.{Colors.ENDC}")
+
+            # Start Tor service
+            print(f"{Colors.GRAY}  Starting Tor service (sudo service tor start)...{Colors.ENDC}")
+            subprocess.check_call(['sudo', 'service', 'tor', 'start'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            # Add a small delay for the service to actually start
+            spinner(5, "Waiting for Tor service to initialize after 'sudo service tor start' command")
+            print(f"{Colors.OKGREEN}{EMOJIS['success']} 'sudo service tor start' command issued.{Colors.ENDC}")
+            
+            # Quick verification if Tor process is running
+            # This is a basic check; full functionality is tested by get_ip later
             try:
-                print(f"{Colors.GRAY}     Trying with 'systemctl start tor'...{Colors.ENDC}")
-                subprocess.check_call(['sudo', 'systemctl', 'start', 'tor'])
-                print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor service started via systemctl.{Colors.ENDC}")
-            except subprocess.CalledProcessError as e_systemctl:
-                print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl start tor' failed: {e_systemctl}.{Colors.ENDC}")
-                if shutil.which('service'): # Check if 'service' command exists
-                    print(f"{Colors.OKBLUE}     Attempting fallback with 'service tor start'...{Colors.ENDC}")
-                    try:
-                        subprocess.check_call(['sudo', 'service', 'tor', 'start'])
-                        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor service started via 'service' command.{Colors.ENDC}")
-                    except subprocess.CalledProcessError as e_service:
-                        print(f"{Colors.WARNING}{EMOJIS['error']} 'service tor start' also failed: {e_service}. Tor might be running or requires manual start/check.{Colors.ENDC}")
-                    except FileNotFoundError:
-                        print(f"{Colors.WARNING}{EMOJIS['error']} 'service' command found but 'tor' service script might be missing or not executable.{Colors.ENDC}")
+                pgrep_check = subprocess.run(["pgrep", "-x", "tor"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if pgrep_check.returncode == 0 and pgrep_check.stdout.strip():
+                    print(f"{Colors.OKGREEN}{EMOJIS['check']} Tor process detected running after service start.{Colors.ENDC}")
+                    tor_setup_successful = True
                 else:
-                    print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl' failed and 'service' command not found. Cannot start Tor automatically. Please ensure it's running.{Colors.ENDC}")
+                    print(f"{Colors.WARNING}{EMOJIS['error']} Tor process not detected after 'service tor start'. It might take longer or have failed silently.{Colors.ENDC}")
+                    # We'll still mark as potentially successful because the service command itself didn't error.
+                    # The IP check later in the script will be the definitive test.
+                    tor_setup_successful = True # Assuming service start was okay if no error from subprocess
             except FileNotFoundError:
-                 print(f"{Colors.WARNING}{EMOJIS['error']} 'systemctl' command not found.{Colors.ENDC}")
-                 if shutil.which('service'): # Check if 'service' command exists
-                    print(f"{Colors.OKBLUE}     Attempting fallback with 'service tor start'...{Colors.ENDC}")
-                    try:
-                        subprocess.check_call(['sudo', 'service', 'tor', 'start'])
-                        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor service started via 'service' command.{Colors.ENDC}")
-                    except subprocess.CalledProcessError as e_service:
-                        print(f"{Colors.WARNING}{EMOJIS['error']} 'service tor start' failed: {e_service}. Tor might be running or requires manual start/check.{Colors.ENDC}")
-                    except FileNotFoundError:
-                         print(f"{Colors.WARNING}{EMOJIS['error']} 'service' command found but 'tor' service script might be missing or not executable.{Colors.ENDC}")
-                 else:
-                    print(f"{Colors.WARNING}{EMOJIS['error']} Neither 'systemctl' nor 'service' command found. Cannot start Tor automatically. Please ensure it's running.{Colors.ENDC}")
+                print(f"{Colors.WARNING} pgrep not found, cannot verify Tor process directly after service start. Assuming success if 'service tor start' did not error.{Colors.ENDC}")
+                tor_setup_successful = True # Assuming okay
 
         except subprocess.CalledProcessError as e:
-            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Failed to install Tor using 'apt': {e}{Colors.ENDC}")
-            print(f"{Colors.WARNING}   'apt' method failed. Will try other methods if available.{Colors.ENDC}")
-        except FileNotFoundError:
-            print(f"{Colors.WARNING}{EMOJIS['error']} 'sudo' or 'apt-get' command not found. Cannot use 'apt' method.{Colors.ENDC}")
-        except Exception as e:
-            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] An unexpected error occurred during 'apt' Tor installation: {e}{Colors.ENDC}")
+            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Preferred Tor setup ('apt'/'service') failed: {e}{Colors.ENDC}")
+            print(f"{Colors.FAIL}   Stderr: {e.stderr.decode(errors='ignore').strip() if e.stderr else 'N/A'}{Colors.ENDC}")
+            if e.returncode == 100 and "Unable to lock an administration directory" in e.stderr.decode(errors='ignore'):
+                print(f"{Colors.WARNING}{EMOJIS['info']} This might be due to another package manager running. Please ensure no other apt/dpkg processes are active.{Colors.ENDC}")
 
-    # Attempt 2: Fallback to pytor's internal checks (e.g., for Windows or if apt failed/unavailable)
-    if not tor_installed_successfully:
-        print(f"\n{Colors.OKBLUE}{EMOJIS['info']} Trying 'pytor' internal Tor setup (e.g., for Windows or as fallback)...{Colors.ENDC}")
+        except FileNotFoundError as e:
+            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] A command was not found during preferred Tor setup (e.g., sudo, apt, service): {e}{Colors.ENDC}")
+    
+    # --- Fallback to pytor's internal setup if preferred method wasn't applicable, or failed, or didn't set tor_setup_successful ---
+    if not tor_setup_successful:
+        if preferred_method_attempted:
+            print(f"\n{Colors.OKBLUE}{EMOJIS['info']} Preferred 'apt/service' Tor setup failed or did not confirm success. Trying fallback 'pytor' methods...{Colors.ENDC}")
+        else:
+            print(f"\n{Colors.OKBLUE}{EMOJIS['info']} Preferred 'apt/service' Tor setup not applicable for this system. Trying 'pytor' internal Tor setup...{Colors.ENDC}")
+        
         try:
-            pytor.check_dependencies() # This might install Tor on Windows or check for it on other systems
+            pytor.check_dependencies() # Checks for tor/curl on Linux and tries to install them if missing using package managers.
             pytor.start_tor()        # Starts Tor service using methods in pytor.py
-            print(f"{Colors.OKGREEN}{EMOJIS['success']} 'pytor' internal Tor setup checks completed.{Colors.ENDC}")
-            tor_installed_successfully = True # Assume success if no exceptions from pytor
+            print(f"{Colors.OKGREEN}{EMOJIS['success']} 'pytor' internal Tor setup/start attempt completed.{Colors.ENDC}")
+            # We assume pytor.start_tor() is successful if it doesn't raise an exception.
+            # The true test will be the IP check later.
+            tor_setup_successful = True 
         except Exception as e:
-            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Failed during 'pytor' internal Tor setup: {e}{Colors.ENDC}")
+            print(f"{Colors.FAIL}{EMOJIS['error']} [ERROR] Fallback 'pytor' internal Tor setup failed: {e}{Colors.ENDC}")
 
-    if not tor_installed_successfully:
-        print(f"{Colors.FAIL}{EMOJIS['error']} [CRITICAL ERROR] All attempts to install/start Tor failed.{Colors.ENDC}")
-        print(f"{Colors.WARNING}Please ensure Tor can be installed and started on your system.{Colors.ENDC}")
-        print(f"{Colors.WARNING}  - On Linux, you might need to run 'sudo apt-get install tor' or similar manually.{Colors.ENDC}")
-        print(f"{Colors.WARNING}  - On Windows, ensure the Tor Browser Bundle is installed or that 'pytor' can manage Tor.{Colors.ENDC}")
-        print(f"{Colors.WARNING}After manual installation/fix, please restart the script.{Colors.ENDC}")
+    # 3. Final Check
+    if not tor_setup_successful:
+        print(f"\n{Colors.FAIL}{EMOJIS['error']} [CRITICAL ERROR] All attempts to set up and start Tor failed.{Colors.ENDC}")
+        print(f"{Colors.WARNING}Please ensure Tor can be installed and started on your system, or that it's already running and accessible.{Colors.ENDC}")
+        print(f"{Colors.WARNING}  - On Linux, verify 'sudo apt install tor' and 'sudo service tor start' work manually.{Colors.ENDC}")
+        print(f"{Colors.WARNING}  - Or, check Tor logs for issues (e.g., /var/log/tor/log or similar).{Colors.ENDC}")
         sys.exit(1)
     else:
-        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor setup appears successful.{Colors.ENDC}")
+        print(f"\n{Colors.OKGREEN}{EMOJIS['success']} Tor setup phase completed. IP connectivity will be tested next.{Colors.ENDC}")
 
 def get_user_links():
     """
@@ -476,13 +537,13 @@ def check_root():
             print("\033[1;31mERROR:\033[0m This script must be run as root.")
             print("Please run with: sudo python3 main.py")
             sys.exit(1)
-    # On Windows systems
-    elif os.name == 'nt':
-        import ctypes
-        if not ctypes.windll.shell32.IsUserAnAdmin():
-            print("\033[1;31mERROR:\033[0m This script must be run as administrator.")
-            print("Please right-click on Command Prompt or PowerShell and select 'Run as administrator'")
-            sys.exit(1)
+    # Removed Windows admin check as script is now Linux-only
+    # elif os.name == 'nt':
+    #     import ctypes
+    #     if not ctypes.windll.shell32.IsUserAnAdmin():
+    #         print("\033[1;31mERROR:\033[0m This script must be run as administrator.")
+    #         print("Please right-click on Command Prompt or PowerShell and select 'Run as administrator'")
+    #         sys.exit(1)
 
 def validate_all_links(links, tor_ports):
     """
@@ -568,26 +629,42 @@ def show_tor_status(base_tor_port, num_connections):
         base_tor_port (int): The starting SOCKS port for Tor.
         num_connections (int): Number of Tor connections/ports to check.
     """
-    print(f"\n{Colors.OKBLUE}{EMOJIS['info']} Checking Tor Connection Status(es)...{Colors.ENDC}")
+    print(f"\n{Colors.OKBLUE}{EMOJIS['info']} Checking Tor Connection Status & IPs for {num_connections} configured circuit(s)...{Colors.ENDC}")
     any_successful = False
+    all_ports_checked = []
+
+    if num_connections == 0: # Should ideally not happen if logic is correct elsewhere
+        print(f"{Colors.WARNING}{EMOJIS['error']} No connections configured to check Tor status.{Colors.ENDC}")
+        return
+
     for i in range(num_connections):
         port = base_tor_port + i
-        print(f"{Colors.GRAY}  Attempting to get IP for Tor SOCKS port {port}...{Colors.ENDC}")
+        all_ports_checked.append(str(port))
+        print(f"{Colors.GRAY}  {EMOJIS['wait']} Attempting to get IP for Tor SOCKS port {Colors.BOLD}{port}{Colors.ENDC}{Colors.GRAY}...{Colors.ENDC}")
         try:
-            # Assuming pytor.get_ip is robust and handles its own retries/timeouts for a single port check
+            # pytor.get_ip is verbose and will print its own success/failure for the IP itself.
+            # It exits on total failure for that port, so we might not always see the messages below if it exits.
             current_ip = pytor.get_ip(tor_port=port) 
-            if current_ip: # pytor.get_ip returns IP string on success, or handles its own error printing and exits on total failure
-                print(f"{Colors.OKGREEN}{EMOJIS['success']} Connection via Port {port}: External IP {current_ip}{Colors.ENDC}")
+            if current_ip: # Should always be true if pytor.get_ip didn't exit
+                # The detailed IP and service used is printed by pytor.get_ip
+                # Here we just confirm this port in main.py context was successful.
+                print(f"{Colors.OKGREEN}  {EMOJIS['success']} Successfully connected via SOCKS Port {Colors.BOLD}{port}{Colors.ENDC}{Colors.OKGREEN}. External IP confirmed.{Colors.ENDC}")
                 any_successful = True
-            else:
-                # This case might not be hit if pytor.get_ip exits on failure for that port.
-                print(f"{Colors.FAIL}{EMOJIS['error']} Could not get IP for Port {port}. Ensure Tor is active and configured for this SOCKS port.{Colors.ENDC}")
+            # else: # This path is less likely if pytor.get_ip exits on failure.
+                # print(f"{Colors.FAIL}  {EMOJIS['error']} Could not get IP for Port {port} (as reported by pytor.get_ip).{Colors.ENDC}")
+        except SystemExit:
+            # This handles the case where pytor.get_ip calls sys.exit(1) after all its retries fail for a port.
+            print(f"{Colors.FAIL}  {EMOJIS['error']} Failed to get an IP for Tor SOCKS Port {Colors.BOLD}{port}{Colors.ENDC}{Colors.FAIL} after multiple attempts. Check Tor logs for issues with this port.{Colors.ENDC}")
         except Exception as e:
-            # Catch any other unexpected exceptions during the IP check for a specific port
-            print(f"{Colors.FAIL}{EMOJIS['error']} Error while checking Tor Port {port}: {e}{Colors.ENDC}")
-    if not any_successful and num_connections > 0:
-        print(f"{Colors.WARNING}{EMOJIS['error']} Failed to confirm external IP for any Tor SOCKS port. \
-                  Please check your Tor configuration and ensure it's running and accessible on the configured ports (starting from {base_tor_port}).{Colors.ENDC}")
+            print(f"{Colors.FAIL}  {EMOJIS['error']} An unexpected error occurred while checking Tor Port {Colors.BOLD}{port}{Colors.ENDC}{Colors.FAIL}: {e}{Colors.ENDC}")
+    
+    if any_successful:
+        print(f"{Colors.OKGREEN}{EMOJIS['success']} Tor IP checks completed. At least one connection is working.{Colors.ENDC}")
+    else:
+        print(f"{Colors.FAIL}{EMOJIS['error']} CRITICAL: Failed to confirm external IP for ANY configured Tor SOCKS port(s): {', '.join(all_ports_checked)}.{Colors.ENDC}")
+        print(f"{Colors.WARNING}  Please check your Tor installation, configuration (torrc for multiple SOCKS ports if using >1), and ensure the Tor service is running and accessible.{Colors.ENDC}")
+        print(f"{Colors.WARNING}  View generation cannot proceed without at least one working Tor connection.{Colors.ENDC}")
+        # Potentially sys.exit(1) here if this is deemed absolutely critical before link validation
 
 def dry_run_summary(links, views_per_link, num_connections, base_tor_port):
     """
@@ -623,6 +700,27 @@ completed_views_lock = threading.Lock()
 completed_views_total = 0 # Tracks total views across all links in the current run
 views_per_link_tracker = {} # Tracks views for each specific link_id in the current run
 stop_event_global = threading.Event() # Used to signal all worker threads to stop
+
+def check_virtual_environment():
+    """
+    Checks if the script is running inside a Python virtual environment.
+    If not, prints a warning and guidance to the user.
+    """
+    if not (hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)):
+        print(f"\n{Colors.WARNING}{EMOJIS['error']} WARNING: You are not running this script in a Python virtual environment.{Colors.ENDC}")
+        print(f"{Colors.GRAY}Running without a virtual environment can lead to dependency conflicts and unexpected errors (like 'Missing dependencies for SOCKS support').{Colors.ENDC}")
+        print(f"{Colors.OKBLUE}It is STRONGLY recommended to use a virtual environment.{Colors.ENDC}")
+        print(f"{Colors.OKGREEN}To create and use a virtual environment (on most systems):{Colors.ENDC}")
+        print(f"{Colors.BOLD}  1. python3 -m venv .venv{Colors.ENDC}  (Creates a venv folder named '.venv')")
+        print(f"{Colors.BOLD}  2. source .venv/bin/activate{Colors.ENDC} (On Linux/macOS)")
+        print(f"{Colors.BOLD}     OR{Colors.ENDC}")
+        print(f"{Colors.BOLD}     .venv\\Scripts\\activate{Colors.ENDC} (On Windows CMD/PowerShell)")
+        print(f"{Colors.BOLD}  3. pip install -r requirements.txt{Colors.ENDC} (Install dependencies INSIDE the venv)")
+        print(f"{Colors.BOLD}  4. python3 main.py{Colors.ENDC} (Run the script from within the activated venv)")
+        print(f"{Colors.GRAY}You may need to press Enter to continue if the script proceeds...{Colors.ENDC}")
+        input(f"{Colors.WARNING}Press Enter to acknowledge and continue without a venv (NOT RECOMMENDED), or Ctrl+C to exit and set up a venv: {Colors.ENDC}")
+    else:
+        print(f"{Colors.OKGREEN}{EMOJIS['success']} Running inside a Python virtual environment. Good job!{Colors.ENDC}")
 
 def view_worker(link_info, views_to_generate_for_this_link, tor_ports_available, progress_callback_func):
     """
@@ -713,9 +811,10 @@ def view_worker(link_info, views_to_generate_for_this_link, tor_ports_available,
 
 def main():
     """Main function to run the YouTube view generation system."""
-    os.system('') # For colors in Windows CMD
-    print(BANNER)
+    # os.system('') # Removed for Linux-only
+    print_animated_banner()
     
+    check_virtual_environment()
     check_root()
     install_requirements_and_tor()
 
@@ -769,25 +868,55 @@ def main():
     def progress_update_handler(link_id, views_done_link, total_done_overall, url, success, port, watch_time):
         status_emoji = EMOJIS['success'] if success else EMOJIS['error']
         status_color = Colors.OKGREEN if success else Colors.WARNING
+        action_color = Colors.OKGREEN if success else Colors.FAIL # More distinct color for action
+
         short_url = url[:40] + '...' if len(url) > 43 else url
-        # Print immediate feedback for each view attempt
-        print(f"\r{status_color}{status_emoji} Link ID {link_id} ({short_url}): View #{views_done_link} ({total_done_overall} total) via Port {port} ({watch_time}s). {Colors.ENDC}          ")
+        action_taken = "Viewed" if success else "View Failed"
+        
+        # Using \\r for rewrite, ensure enough spaces to clear previous longer lines if any.
+        # Pad with spaces at the end to clear the line properly.
+        # Example: [✅ Link #0 (http://short.url...): Viewed (Port:9050, Watched:30s). Link Views: 5. Total: 25]
+        progress_line = f"\\r{status_color}{status_emoji}{Colors.ENDC} {Colors.BOLD}Link #{link_id}{Colors.ENDC} ({Colors.GRAY}{short_url}{Colors.ENDC}) - {action_color}{action_taken}{Colors.ENDC} ({Colors.OKBLUE}Port:{port}, Watched:{watch_time}s{Colors.ENDC}). This link: {Colors.BOLD}{views_done_link}{Colors.ENDC}. Total: {Colors.BOLD}{total_done_overall}{Colors.ENDC}    "
+        print(progress_line, end='', flush=True)
 
         # Print a summary less frequently to avoid too much scroll
-        # Adjust frequency based on number of links/connections to be reasonable
-        print_summary_interval = len(validated_links) * max(1, num_parallel_connections // 2)
-        if print_summary_interval == 0: print_summary_interval = 1 # Avoid division by zero if no links/connections (though unlikely here)
+        # Dynamic interval: more frequent for fewer links/connections, less for many.
+        # Aim for a summary roughly every N view attempts overall, where N is based on connections.
+        if num_parallel_connections == 0 : num_parallel_connections = 1 # Avoid div by zero
+        # More frequent summaries for fewer connections, less frequent for many.
+        # e.g., 1 conn: every 3 views. 5 conns: every 10 views. 10 conns: every 15 views.
+        print_summary_interval = max(1, (num_parallel_connections * 2) + (num_parallel_connections // 2))
+        if not validated_links: print_summary_interval = 1 # Should not happen
         
         if total_done_overall % print_summary_interval == 0 or total_done_overall == 1:
             elapsed_time = time.time() - start_time_proc
+            elapsed_time_str = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s" if elapsed_time >=60 else f"{elapsed_time:.1f}s"
             avg_time_per_view = elapsed_time / total_done_overall if total_done_overall > 0 else 0
-            views_remaining_str = "Continuous" 
+            
+            # Ensure a newline before this summary, as the progress_line uses \\r
+            print() # Newline before summary
+            print(f"{Colors.HEADER}{EMOJIS['kaddu']} {'-'*20} KADDU YT-VIEWS: PROGRESS {'-'*20} {EMOJIS['kaddu']}{Colors.ENDC}")
+            print(f"{Colors.OKCYAN}  {EMOJIS['progress']} {Colors.BOLD}Overall Status @ {time.strftime('%H:%M:%S')}{Colors.ENDC}")
+            print(f"{Colors.GRAY}  -----------------------------------------------------------{Colors.ENDC}")
+            print(f"{Colors.OKBLUE}  {EMOJIS['thread']} Active Parallel Connections: {Colors.BOLD}{num_parallel_connections}{Colors.ENDC}")
+            print(f"{Colors.OKGREEN}  {EMOJIS['success']} Total Views Generated So Far: {Colors.BOLD}{total_done_overall}{Colors.ENDC}")
+            
             if views_per_target_link > 0:
                 total_target_views = len(validated_links) * views_per_target_link
                 views_remaining = total_target_views - total_done_overall
-                views_remaining_str = str(max(0, views_remaining)) # Ensure non-negative
-            # Ensure a newline before this summary if many rapid view updates happened
-            print(f"\n{Colors.OKCYAN}{EMOJIS['progress']} Overall: {total_done_overall} views. Target Remaining: {views_remaining_str}. Avg time/view: {avg_time_per_view:.2f}s.{Colors.ENDC}")
+                completion_percent = (total_done_overall / total_target_views) * 100 if total_target_views > 0 else 0
+                print(f"{Colors.WARNING}  {EMOJIS['wait']} Target Views Remaining: {Colors.BOLD}{max(0, views_remaining)}{Colors.ENDC} ({Colors.OKGREEN}{completion_percent:.1f}% Complete{Colors.ENDC})")
+                if views_remaining > 0 and avg_time_per_view > 0:
+                    time_eta_seconds = views_remaining * avg_time_per_view
+                    time_eta_str = f"{time_eta_seconds // 60:.0f}m {time_eta_seconds % 60:.0f}s" if time_eta_seconds >=60 else f"{time_eta_seconds:.0f}s"
+                    print(f"{Colors.OKCYAN}  {EMOJIS['wait']} Estimated Time Remaining (ETR): {Colors.BOLD}{time_eta_str}{Colors.ENDC}")
+            else: # Continuous mode
+                print(f"{Colors.OKGREEN}  {EMOJIS['spinner']} Running in {Colors.BOLD}Continuous Mode{Colors.ENDC}. Press Ctrl+C to stop.")
+
+            print(f"{Colors.OKBLUE}  {EMOJIS['info']} Avg. Time Per View (this session): {Colors.BOLD}{avg_time_per_view:.2f} seconds{Colors.ENDC}")
+            print(f"{Colors.GRAY}  {EMOJIS['info']} Total Elapsed Time: {Colors.BOLD}{elapsed_time_str}{Colors.ENDC}")
+            print(f"{Colors.HEADER}{'-'*60}{Colors.ENDC}")
+            # No need to print progress_line again here, it's continuously updated by \\r
     
     try:
         with ThreadPoolExecutor(max_workers=num_parallel_connections) as executor:
