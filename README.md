@@ -6,11 +6,22 @@ This script helps simulate views for your YouTube videos and shorts using Tor fo
 
 **GitHub:** [https://github.com/Kaddu-Hacker/InfiniteYtViews](https://github.com/Kaddu-Hacker/InfiniteYtViews)
 
-## Visual Improvements (2024 Update)
+## 🚀 2025 Update: Smarter Setup & User Experience
 
-* **Animated ASCII Banner:** The CLI now features a big, bold animated ASCII banner using [pyfiglet](https://pypi.org/project/pyfiglet/) and [rich](https://pypi.org/project/rich/).
-* **Modern Look:** The banner is printed with color and animation for a more engaging CLI experience.
-* **How it works:** The banner is shown at startup, and all other CLI output remains as before.
+- **Automatic Environment Setup:**
+  - The script now automatically checks for a Python virtual environment (venv) at startup.
+  - If not in a venv, it exits with clear, colorful instructions on how to create and activate one.
+  - After venv is detected, it will **automatically install all Python requirements** and **install/start Tor** if needed.
+  - All steps show clear, emoji-filled messages for both success and failure, so you always know what is happening and where you might be stuck.
+  - If you run as root, the script will warn you and suggest using `sudo -E` to preserve your venv environment variables.
+  - Improved venv detection (checks both sys.prefix and VIRTUAL_ENV).
+
+- **Motivational Feedback:**
+  - Every step (venv, requirements, Tor install, Tor start) gives a success or failure message with colors and emojis, so you feel motivated and always know what to do next.
+
+- **No More Manual Setup:**
+  - Just activate your venv, run the script, and it will handle the rest!
+
 
 ## Features
 
@@ -34,6 +45,7 @@ This script includes functionality to install system packages (like Tor via `apt
 1.  Understand what the script does (review the code).
 2.  Run with `sudo` **only** when necessary for specific tasks like initial setup and execution.
 3.  Use a virtual environment for Python packages to avoid conflicts with system Python.
+4.  If you must use `sudo`, use `sudo -E python3 main.py` to preserve your venv environment variables.
 
 ## Setup and Installation (Linux)
 
@@ -66,52 +78,39 @@ Open your terminal in the project directory.
     ```
     Your terminal prompt should change to indicate that the virtual environment is active (e.g., `(.venv) your-prompt$`).
 
-**4. Install Dependencies:**
+**4. Run the Script:**
 
-Once the virtual environment is activated, install the required Python packages:
+Once the virtual environment is activated, simply run:
 
 ```bash
-pip install -r requirements.txt
+python3 main.py
 ```
 
-**5. Ensure Tor is Available:**
+- The script will automatically install all requirements and Tor, and start Tor, if needed.
+- If you need to run as root, use:
 
-The script will attempt to install and start Tor if it's not detected (using `apt` on Debian-based Linux, or other methods via the included `pytor.py` for other supported Linux distributions).
-*   **Linux:** It's often best to have Tor installed system-wide (e.g., `sudo apt install tor`). The script will try to use the system service. `pytor.py` also includes functions to attempt installation on various Linux distributions if `apt` is not available or fails.
+```bash
+sudo -E python3 main.py
+```
 
-## How to Run (Linux)
-
-1.  **Ensure your virtual environment is activated** (see step 3 above).
-2.  Navigate to the script's directory in your terminal.
-3.  Run the `main.py` script **with `sudo`** because it needs to manage the Tor service and potentially install packages:
-
-    ```bash
-    sudo python3 main.py
-    ```
-
-4.  Follow the on-screen prompts:
-    *   The script will first check if you're in a virtual environment.
-    *   It will then check for root privileges (which it should have if run with `sudo`).
-    *   It will guide you through installing requirements and setting up Tor if necessary.
-    *   You'll be asked to input YouTube link(s), their type (video/short), duration, desired views, and number of parallel connections.
-    *   You can opt for a "dry run" to see what the script would do without actually performing the views.
+**You do NOT need to manually install requirements or Tor anymore!**
 
 ## Script Workflow
 
-1.  **Initial Checks:** Virtual environment, root status.
-2.  **System Setup:** Installs Python packages from `requirements.txt`. Checks for Tor and attempts to install/start it using system package managers (like `apt`) or the `pytor.py` helper scripts.
-3.  **User Input:**
-    *   Prompts for content type (videos, shorts, or mixed).
-    *   For each type, asks for the number of items and an optional default length.
-    *   Prompts for individual URLs and their specific lengths (if no default was set).
-    *   Asks for the number of views per link and the number of parallel Tor connections.
-4.  **Tor Status & Link Validation:** Shows the status of Tor connections and validates all provided links via Tor.
-5.  **Dry Run Option:** Asks if you want to perform a dry run.
-6.  **View Generation:** If not a dry run, it starts simulating views using a `ThreadPoolExecutor` for parallel processing.
-    *   Each view uses a Tor SOCKS port.
-    *   Randomized user agents, start delays, and watch times are applied.
-    *   Progress is displayed in the console.
-7.  **Completion:** Shows a summary of views generated and total time taken.
+1. **Initial Checks:** Virtual environment, root status.
+2. **System Setup:** Installs Python packages from `requirements.txt`. Checks for Tor and attempts to install/start it using system package managers (like `apt`) or the `pytor.py` helper scripts.
+3. **User Input:**  
+   * Prompts for content type (videos, shorts, or mixed).  
+   * For each type, asks for the number of items and an optional default length.  
+   * Prompts for individual URLs and their specific lengths (if no default was set).  
+   * Asks for the number of views per link and the number of parallel Tor connections.
+4. **Tor Status & Link Validation:** Shows the status of Tor connections and validates all provided links via Tor.
+5. **Dry Run Option:** Asks if you want to perform a dry run.
+6. **View Generation:** If not a dry run, it starts simulating views using a `ThreadPoolExecutor` for parallel processing.  
+   * Each view uses a Tor SOCKS port.  
+   * Randomized user agents, start delays, and watch times are applied.  
+   * Progress is displayed in the console.
+7. **Completion:** Shows a summary of views generated and total time taken.
 
 ## Important Considerations
 
@@ -123,17 +122,17 @@ The script will attempt to install and start Tor if it's not detected (using `ap
 
 ## Troubleshooting (Linux)
 
-*   **\"Missing dependencies for SOCKS support\":**
-    *   **USE A VIRTUAL ENVIRONMENT!** This is the most common fix.
-    *   Activate your venv.
-    *   Run `pip install -r requirements.txt` again.
-    *   You can also try `pip install PySocks \"requests[socks]\"` within the venv.
-*   **Tor Connection Issues:**
-    *   Ensure Tor is installed and the service is running. Use `sudo service tor status` or `systemctl status tor` to check.
-    *   Check your firewall settings to ensure Python and Tor can make outbound connections.
-    *   If using multiple Tor ports, ensure your Tor configuration (`torrc`) is set up correctly to provide multiple SOCKS listeners (the script currently primarily uses the default 9050 or a sequence starting from it if multiple connections are specified, but `pytor.py` might have its own logic for multiple instances).
-*   **Permission Errors (for Tor setup/start):**
-    *   The script must be run with `sudo` (e.g., `sudo python3 main.py`) for the initial setup steps that install or start the `tor` service and for IP changing operations.
+*   **"Missing dependencies for SOCKS support":**  
+   * **USE A VIRTUAL ENVIRONMENT!** This is the most common fix.  
+   * Activate your venv.  
+   * Run `pip install -r requirements.txt` again.  
+   * You can also try `pip install PySocks "requests[socks]"` within the venv.
+*   **Tor Connection Issues:**  
+   * Ensure Tor is installed and the service is running. Use `sudo service tor status` or `systemctl status tor` to check.  
+   * Check your firewall settings to ensure Python and Tor can make outbound connections.  
+   * If using multiple Tor ports, ensure your Tor configuration (`torrc`) is set up correctly to provide multiple SOCKS listeners (the script currently primarily uses the default 9050 or a sequence starting from it if multiple connections are specified, but `pytor.py` might have its own logic for multiple instances).
+*   **Permission Errors (for Tor setup/start):**  
+   * The script must be run with `sudo` (e.g., `sudo -E python3 main.py`) for the initial setup steps that install or start the `tor` service and for IP changing operations.
 
 ## Disclaimer
 
