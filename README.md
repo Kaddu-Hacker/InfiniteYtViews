@@ -1,97 +1,143 @@
-# 🚀 KADDU's YT-Views
+# KADDU YT-VIEWS SYSTEM 🎃👀
 
-✨ **For Free** ✨
+Automated, Smart, and Human-like YouTube View Simulation!
 
-A powerful tool to generate YouTube views by rotating IP addresses through the Tor network. This project enhances the viewing experience with a beautiful CLI interface and robust IP rotation.
+This script helps simulate views for your YouTube videos and shorts using Tor for IP rotation, with a focus on mimicking human-like behavior. **This script is intended for Linux systems only.**
 
-![KADDU's YT-Views]
+**GitHub:** [https://github.com/Kaddu-Hacker/InfiniteYtViews](https://github.com/Kaddu-Hacker/InfiniteYtViews)
 
-## ✅ Features
+## Visual Improvements (2024 Update)
 
-- 🔄 **Advanced IP Rotation** - Automatically changes your IP address using the Tor network
-- 👁️ **Multiple Video Support** - Generate views for multiple videos/shorts simultaneously
-- 🕵️ **Undetectable User Agents** - Uses 50+ different user agents to appear natural
-- 📊 **Detailed Statistics** - Track view generation with beautiful progress bars
-- ⏱️ **Smart Timing Algorithms** - Simulates real user behavior with random viewing times
-- 🎨 **Beautiful CLI Interface** - Colorful and informative terminal UI
-- 🔒 **Privacy Focused** - All traffic routed through the Tor network
-- 🌍 **Geolocation Info** - Fetches and displays the new IP address and its geolocation (city, region, country)
-- ♾️ **Infinite Loop Option** - Can run in an infinite loop for continuous IP changes
+* **Animated ASCII Banner:** The CLI now features a big, bold animated ASCII banner using [pyfiglet](https://pypi.org/project/pyfiglet/) and [rich](https://pypi.org/project/rich/).
+* **Modern Look:** The banner is printed with color and animation for a more engaging CLI experience.
+* **How it works:** The banner is shown at startup, and all other CLI output remains as before.
 
-## 📋 Requirements
+## Features
 
-- 🐧 **Operating System**:
-  - Linux-based operating system (Ubuntu, Debian, Fedora, CentOS, Red Hat, or Arch)
-- 🐍 **Python 3.6 or higher**
-- 🔑 **Root privileges** (required to control the Tor service)
+*   **Smart Human-like Behavior:** Randomized view durations, start delays, and user-agents to appear more organic.
+*   **Tor Integration:** Uses Tor for IP rotation, providing anonymity and different IP addresses for views.
+*   **Parallel Viewing:** Utilizes multithreading to simulate multiple views concurrently for efficiency.
+*   **Link Validation:** Checks if provided YouTube links are accessible via Tor before starting the view process.
+*   **User-Friendly CLI:** Interactive command-line interface with colors, emojis, and helpful prompts for Linux terminals.
+*   **Video & Shorts Support:** Can process both regular YouTube videos and YouTube Shorts with appropriate watch time considerations.
+*   **Customizable:** Set the number of views, parallel connections, and content details.
+*   **Dry Run Mode:** Preview the actions the script will take without actually generating views.
+*   **System Setup Assistance:** Helps with installing Python dependencies and attempts to manage the Tor service on Linux.
+*   **Virtual Environment Guidance:** Prompts users to use a Python virtual environment for better dependency management.
+*   **Updated User Agents:** Now uses a list of 50+ real, up-to-date user agent strings for better realism.
 
-## 📥 Installation
+## ⚠️ Important Note on Running as Root
 
-### 🐧 Linux - One-Step Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Kaddu-Hacker/InfiniteYtViews.git
-   cd InfiniteYtViews
-   ```
+This script includes functionality to install system packages (like Tor via `apt`) and manage system services on Linux. Therefore, it **requires `sudo` privileges** for these operations.
 
-2. Run the main script:
-   ```bash
-   sudo python3 main.py
-   ```
+**Always be cautious when running scripts with elevated privileges.** It's generally recommended to:
+1.  Understand what the script does (review the code).
+2.  Run with `sudo` **only** when necessary for specific tasks like initial setup and execution.
+3.  Use a virtual environment for Python packages to avoid conflicts with system Python.
 
-That's it! The script will automatically:
-- ✅ Install all required Python packages
-- ✅ Install Tor if not already present
-- ✅ Start the Tor service
-- ✅ Configure everything for optimal performance
+## Setup and Installation (Linux)
 
-No manual configuration needed - everything is handled automatically!
+It is **STRONGLY RECOMMENDED** to use a Python virtual environment to avoid conflicts with your system's Python packages and to ensure a clean, isolated environment for this script.
 
-## 🔍 How It Works
+**1. Clone the Repository (if you haven't already):**
 
-1. 🔧 **Setup Phase**:
-   - Checks for root privileges (required to control the Tor service)
-   - Installs required dependencies (Tor, curl, Python packages)
-   - Initializes the Tor network and gets an initial IP
+```bash
+# If you have git installed
+git clone https://github.com/Kaddu-Hacker/InfiniteYtViews.git
+cd InfiniteYtViews
+# Otherwise, download the source code and navigate to its directory
+```
 
-2. ⚙️ **Configuration**:
-   - Set time interval between IP changes (default: 120 seconds)
-   - Specify number of videos/shorts to generate views for
-   - Enter URL and desired view count for each video/short
+**2. Create a Python Virtual Environment:**
 
-3. 🚀 **View Generation**:
-   - Rotates IP addresses through the Tor network at specified intervals
-   - Accesses each video URL through the Tor proxy
-   - Simulates real user behavior with random viewing times
-   - Displays detailed progress with beautiful animations
-   - Tracks statistics and provides comprehensive summary
+Open your terminal in the project directory.
 
-## ⚠️ Important Notes
+*   **On Linux (bash/zsh/etc.):**
+    ```bash
+    python3 -m venv .venv
+    ```
+    This will create a folder named `.venv` in your project directory.
 
-- 📚 This tool is for **educational purposes only**
-- 📜 Using this tool may violate the terms of service of video platforms
-- 🔒 IP rotation through Tor may not be sufficient to bypass all detection mechanisms
-- 📈 The effectiveness of view generation depends on many factors including the platform's detection algorithms
+**3. Activate the Virtual Environment:**
 
-## 🛠️ Troubleshooting
+*   **On Linux (bash/zsh/etc.):**
+    ```bash
+    source .venv/bin/activate
+    ```
+    Your terminal prompt should change to indicate that the virtual environment is active (e.g., `(.venv) your-prompt$`).
 
-- If you encounter issues with automatic Tor installation, you can manually install it:
-  ```bash
-  # For Debian/Ubuntu
-  sudo apt-get update && sudo apt-get install -y tor
-  
-  # For Fedora/CentOS/RHEL
-  sudo yum install -y tor
-  
-  # For Arch Linux
-  sudo pacman -S --noconfirm tor
-  ```
+**4. Install Dependencies:**
 
-- If the script fails to fetch IP information:
-  1. Check your internet connection
-  2. Verify Tor is running with: `sudo systemctl status tor` or `pgrep tor`
-  3. Try restarting Tor manually: `sudo systemctl restart tor`
-  4. Make sure port 9050 is not blocked by your firewall
+Once the virtual environment is activated, install the required Python packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+**5. Ensure Tor is Available:**
+
+The script will attempt to install and start Tor if it's not detected (using `apt` on Debian-based Linux, or other methods via the included `pytor.py` for other supported Linux distributions).
+*   **Linux:** It's often best to have Tor installed system-wide (e.g., `sudo apt install tor`). The script will try to use the system service. `pytor.py` also includes functions to attempt installation on various Linux distributions if `apt` is not available or fails.
+
+## How to Run (Linux)
+
+1.  **Ensure your virtual environment is activated** (see step 3 above).
+2.  Navigate to the script's directory in your terminal.
+3.  Run the `main.py` script **with `sudo`** because it needs to manage the Tor service and potentially install packages:
+
+    ```bash
+    sudo python3 main.py
+    ```
+
+4.  Follow the on-screen prompts:
+    *   The script will first check if you're in a virtual environment.
+    *   It will then check for root privileges (which it should have if run with `sudo`).
+    *   It will guide you through installing requirements and setting up Tor if necessary.
+    *   You'll be asked to input YouTube link(s), their type (video/short), duration, desired views, and number of parallel connections.
+    *   You can opt for a "dry run" to see what the script would do without actually performing the views.
+
+## Script Workflow
+
+1.  **Initial Checks:** Virtual environment, root status.
+2.  **System Setup:** Installs Python packages from `requirements.txt`. Checks for Tor and attempts to install/start it using system package managers (like `apt`) or the `pytor.py` helper scripts.
+3.  **User Input:**
+    *   Prompts for content type (videos, shorts, or mixed).
+    *   For each type, asks for the number of items and an optional default length.
+    *   Prompts for individual URLs and their specific lengths (if no default was set).
+    *   Asks for the number of views per link and the number of parallel Tor connections.
+4.  **Tor Status & Link Validation:** Shows the status of Tor connections and validates all provided links via Tor.
+5.  **Dry Run Option:** Asks if you want to perform a dry run.
+6.  **View Generation:** If not a dry run, it starts simulating views using a `ThreadPoolExecutor` for parallel processing.
+    *   Each view uses a Tor SOCKS port.
+    *   Randomized user agents, start delays, and watch times are applied.
+    *   Progress is displayed in the console.
+7.  **Completion:** Shows a summary of views generated and total time taken.
+
+## Important Considerations
+
+*   **YouTube's Terms of Service:** Automating views may be against YouTube's Terms of Service. Use this script responsibly and at your own risk.
+*   **Effectiveness:** The actual impact on view counts can vary and may be temporary, as YouTube has sophisticated detection mechanisms.
+*   **Resource Usage:** Running many parallel connections can consume system resources and bandwidth. Tor itself adds overhead.
+*   **Tor Network:** Be mindful of the Tor network. This tool is for educational and experimental purposes; avoid overloading the network.
+*   **SOCKS Dependencies:** If you encounter errors like "Missing dependencies for SOCKS support," ensure `PySocks` is correctly installed in your **activated virtual environment** (`pip install PySocks requests[socks]`).
+
+## Troubleshooting (Linux)
+
+*   **\"Missing dependencies for SOCKS support\":**
+    *   **USE A VIRTUAL ENVIRONMENT!** This is the most common fix.
+    *   Activate your venv.
+    *   Run `pip install -r requirements.txt` again.
+    *   You can also try `pip install PySocks \"requests[socks]\"` within the venv.
+*   **Tor Connection Issues:**
+    *   Ensure Tor is installed and the service is running. Use `sudo service tor status` or `systemctl status tor` to check.
+    *   Check your firewall settings to ensure Python and Tor can make outbound connections.
+    *   If using multiple Tor ports, ensure your Tor configuration (`torrc`) is set up correctly to provide multiple SOCKS listeners (the script currently primarily uses the default 9050 or a sequence starting from it if multiple connections are specified, but `pytor.py` might have its own logic for multiple instances).
+*   **Permission Errors (for Tor setup/start):**
+    *   The script must be run with `sudo` (e.g., `sudo python3 main.py`) for the initial setup steps that install or start the `tor` service and for IP changing operations.
+
+## Disclaimer
+
+This script is provided for educational and experimental purposes only. The developers are not responsible for any misuse or for any actions taken by users of this script. Use at your own risk and discretion.
 
 ## 📝 License
 
@@ -111,7 +157,6 @@ This project is based in part on [PyTor IP Changer](https://github.com/G0ldenRat
 - Retrieves geolocation information (city, region, country) based on the new IP
 - Configurable intervals for IP rotation
 - Can run in an infinite loop for continuous IP changes
-
 
 ## 🤝 Contributing
 
