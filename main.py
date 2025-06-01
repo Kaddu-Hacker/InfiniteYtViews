@@ -1,17 +1,231 @@
 #!/usr/bin/env python3
+# --- MINIMAL IMPORTS FOR SETUP CHECKS ---
 import os
-# Removed colorama import and initialization block for Windows
 import sys
-import time
-import random
 import subprocess
+import shutil
+import importlib.util
+
+# --------------------------------------
+# --- PRIORITIZED SETUP STARTS HERE ---
+# Emojis and Colors for UI
+EMOJI_SUCCESS = "✅"
+EMOJI_WARNING = "⚠️"
+EMOJI_ERROR = "❌"
+EMOJI_INFO = "ℹ️"
+EMOJI_PROMPT = "👉"
+EMOJI_PYTHON = "🐍"
+EMOJI_TOR = "🧅"
+EMOJI_GEAR = "⚙️"
+EMOJI_ROCKET = "🚀"
+
+C_HEADER = '\033[95m'
+C_BLUE = '\033[94m'
+C_CYAN = '\033[96m'
+C_GREEN = '\033[92m'
+C_WARNING = '\033[93m'
+C_FAIL = '\033[91m'
+C_END = '\033[0m'
+C_BOLD = '\033[1m'
+C_GRAY = '\033[90m'
+
+def is_venv():
+    """Checks if the script is running inside a Python virtual environment."""
+    return (
+        hasattr(sys, 'real_prefix') or
+        (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+    )
+
+def require_venv_or_exit():
+    """Exits the program if not running inside a venv, with clear instructions."""
+    print(f"{C_HEADER}{EMOJI_GEAR} Initializing KADDU YT-VIEWS System Setup...{C_END}")
+    print(f"{C_BLUE}{EMOJI_PYTHON} Checking for Python virtual environment (venv)...{C_END}")
+    if not is_venv():
+        print(f"{C_FAIL}{EMOJI_ERROR} {C_BOLD}CRITICAL: Not running in a Python virtual environment!{C_END}")
+        print(f"{C_WARNING}   This script {C_BOLD}MUST{C_END}{C_WARNING} be run inside a venv to avoid system-wide package conflicts and ensure correct dependency versions.{C_END}")
+        print(f"{C_CYAN}{EMOJI_INFO} {C_BOLD}Follow these steps to create and activate a venv (Linux/macOS):{C_END}")
+        print(f"{C_GRAY}     1. Navigate to the script's directory in your terminal.{C_END}")
+        print(f"{C_GRAY}     2. Create venv: {C_BOLD}python3 -m venv .kaddu_venv{C_END}")
+        print(f"{C_GRAY}     3. Activate venv: {C_BOLD}source .kaddu_venv/bin/activate{C_END}")
+        print(f"{C_GRAY}        (Your terminal prompt should now show '(.kaddu_venv)' prefix){C_END}")
+        print(f"{C_GRAY}     4. Install dependencies inside venv: {C_BOLD}pip install -r requirements.txt{C_END}")
+        print(f"{C_GRAY}     5. Run the script: {C_BOLD}python3 main.py{C_END}")
+        print(f"{C_FAIL}{EMOJI_PROMPT} Please set up and activate the virtual environment, then re-run the script. Exiting now.{C_END}")
+        sys.exit(1)
+    print(f"{C_GREEN}{EMOJI_SUCCESS} Python virtual environment detected and active.{C_END}")
+
+def check_and_install_python_dependencies():
+    """Checks Python dependencies and installs them from requirements.txt if missing."""
+    print(f"{C_BLUE}{EMOJI_PYTHON} Checking Python dependencies (requests, PySocks, pyfiglet, rich)...{C_END}")
+    # Check for 'socks' which is provided by 'PySocks'
+    required_modules = {"requests": "requests", "socks": "PySocks", "pyfiglet": "pyfiglet", "rich": "rich"}
+    missing_packages = []
+
+    for module_name, package_name in required_modules.items():
+        if importlib.util.find_spec(module_name) is None:
+            missing_packages.append(package_name)
+
+    if missing_packages:
+        missing_packages_str = ", ".join(sorted(list(set(missing_packages)))) # Unique, sorted
+        print(f"{C_WARNING}{EMOJI_WARNING} Missing Python packages: {C_BOLD}{missing_packages_str}{C_END}")
+        print(f"{C_CYAN}{EMOJI_PROMPT} Attempting to install all dependencies from 'requirements.txt'...{C_END}")
+        req_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+        if not os.path.exists(req_file):
+            print(f"{C_FAIL}{EMOJI_ERROR} {C_BOLD}CRITICAL: 'requirements.txt' not found!{C_END}")
+            print(f"{C_WARNING}   Cannot automatically install dependencies. Please ensure 'requirements.txt' exists and contains all needed packages.{C_END}")
+            sys.exit(1)
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file])
+            print(f"{C_GREEN}{EMOJI_SUCCESS} All Python dependencies from 'requirements.txt' installed successfully.{C_END}")
+            # Re-check after installation attempt (optional, but good for confirmation)
+            all_installed_now = True
+            for module_name in required_modules.keys():
+                 if importlib.util.find_spec(module_name) is None:
+                    all_installed_now = False
+                    print(f"{C_FAIL}{EMOJI_ERROR} Failed to confirm installation of package for module '{module_name}' after 'pip install'. Please check pip output.{C_END}")
+                    sys.exit(1)
+            if all_installed_now:
+                 print(f"{C_GREEN}{EMOJI_SUCCESS} All required Python modules are now available.{C_END}")
+
+        except subprocess.CalledProcessError as e:
+            print(f"{C_FAIL}{EMOJI_ERROR} {C_BOLD}Failed to install Python dependencies: {e}{C_END}")
+            print(f"{C_WARNING}   Please check the error message above and try installing manually: {C_BOLD}pip install -r requirements.txt{C_END}")
+            sys.exit(1)
+    else:
+        print(f"{C_GREEN}{EMOJI_SUCCESS} All required Python dependencies are already installed.{C_END}")
+
+def is_command_available(command):
+    """Checks if a command is available in the system's PATH."""
+    return shutil.which(command) is not None
+
+def ensure_tor_installed():
+    """Ensures Tor is installed, or attempts to install it (Linux only)."""
+    print(f"{C_BLUE}{EMOJI_TOR} Checking Tor installation...{C_END}")
+    if not is_command_available("tor"):
+        print(f"{C_WARNING}{EMOJI_WARNING} Tor command not found. Attempting to install Tor (requires sudo privileges)...{C_END}")
+        installer = None
+        if is_command_available("apt"):
+            installer = "apt"
+            install_cmd = ["sudo", "apt", "update", "-y", "&&", "sudo", "apt", "install", "tor", "-y"]
+        elif is_command_available("yum"):
+            installer = "yum"
+            install_cmd = ["sudo", "yum", "install", "tor", "-y"]
+        elif is_command_available("pacman"):
+            installer = "pacman"
+            install_cmd = ["sudo", "pacman", "-S", "--noconfirm", "tor"]
+        
+        if installer:
+            print(f"{C_CYAN}{EMOJI_PROMPT} Using '{installer}' to install Tor. You might be prompted for your sudo password.{C_END}")
+            try:
+                # For apt, split update and install to avoid issues with && in subprocess
+                if installer == "apt":
+                    print(f"{C_GRAY}   Running 'sudo apt update -y'...{C_END}")
+                    subprocess.check_call(["sudo", "apt", "update", "-y"])
+                    print(f"{C_GRAY}   Running 'sudo apt install tor -y'...{C_END}")
+                    subprocess.check_call(["sudo", "apt", "install", "tor", "-y"])
+                else:
+                    subprocess.check_call(install_cmd)
+                print(f"{C_GREEN}{EMOJI_SUCCESS} Tor successfully installed via {installer}.{C_END}")
+                if not is_command_available("tor"): # Verify
+                    print(f"{C_FAIL}{EMOJI_ERROR} Tor installation reported success, but 'tor' command still not found. Please check your system.{C_END}")
+                    sys.exit(1)
+            except subprocess.CalledProcessError as e:
+                print(f"{C_FAIL}{EMOJI_ERROR} {C_BOLD}Failed to install Tor using {installer}: {e}{C_END}")
+                print(f"{C_WARNING}   Please try installing Tor manually for your Linux distribution and re-run the script.{C_END}")
+                sys.exit(1)
+            except FileNotFoundError: # Should not happen if is_command_available was true for sudo
+                 print(f"{C_FAIL}{EMOJI_ERROR} 'sudo' command not found. Cannot install Tor automatically.{C_END}")
+                 sys.exit(1)
+        else:
+            print(f"{C_FAIL}{EMOJI_ERROR} Could not detect a supported package manager (apt, yum, pacman).{C_END}")
+            print(f"{C_WARNING}   Please install Tor manually for your Linux distribution and re-run the script.{C_END}")
+            sys.exit(1)
+    else:
+        print(f"{C_GREEN}{EMOJI_SUCCESS} Tor is already installed.{C_END}")
+
+def is_tor_service_running():
+    """Checks if the Tor process/service is running."""
+    try:
+        # pgrep is a good general check
+        result = subprocess.run(["pgrep", "-x", "tor"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+        # systemctl check for active service (if available)
+        if is_command_available("systemctl"):
+            result_systemctl = subprocess.run(["systemctl", "is-active", "--quiet", "tor"])
+            if result_systemctl.returncode == 0:
+                return True
+        return False
+    except Exception:
+        return False # If any error during check, assume not running
+
+def ensure_tor_service_running():
+    """Ensures Tor service is running, or attempts to start it (Linux only)."""
+    print(f"{C_BLUE}{EMOJI_TOR} Checking Tor service status...{C_END}")
+    if not is_tor_service_running():
+        print(f"{C_WARNING}{EMOJI_WARNING} Tor service is not running. Attempting to start Tor service (requires sudo privileges)...{C_END}")
+        starter = None
+        if is_command_available("systemctl"):
+            starter = "systemctl"
+            start_cmd = ["sudo", "systemctl", "start", "tor"]
+        elif is_command_available("service"):
+            starter = "service"
+            start_cmd = ["sudo", "service", "tor", "start"]
+        
+        if starter:
+            print(f"{C_CYAN}{EMOJI_PROMPT} Using '{starter}' to start Tor. You might be prompted for your sudo password.{C_END}")
+            try:
+                subprocess.check_call(start_cmd)
+                # Wait a moment for the service to initialize
+                print(f"{C_GRAY}   Waiting a few seconds for Tor service to initialize...{C_END}")
+                time_to_wait = 5
+                for i in range(time_to_wait, 0, -1):
+                    sys.stdout.write(f"\r{C_GRAY}   Initialization check in {i}s... {C_END}")
+                    sys.stdout.flush()
+                    time.sleep(1)
+                print(f"\r{C_GRAY}   Initialization wait complete.          {C_END}")
+
+                if is_tor_service_running():
+                    print(f"{C_GREEN}{EMOJI_SUCCESS} Tor service successfully started via {starter}.{C_END}")
+                else:
+                    print(f"{C_FAIL}{EMOJI_ERROR} Tor service start command issued via {starter}, but service is still not detected as running.{C_END}")
+                    print(f"{C_WARNING}   Check Tor logs (e.g., 'sudo systemctl status tor' or /var/log/tor/log) for errors.{C_END}")
+                    sys.exit(1)
+            except subprocess.CalledProcessError as e:
+                print(f"{C_FAIL}{EMOJI_ERROR} {C_BOLD}Failed to start Tor service using {starter}: {e}{C_END}")
+                print(f"{C_WARNING}   Please try starting Tor manually (e.g., 'sudo systemctl start tor' or 'sudo service tor start') and re-run.{C_END}")
+                sys.exit(1)
+            except FileNotFoundError:
+                 print(f"{C_FAIL}{EMOJI_ERROR} 'sudo' command not found. Cannot start Tor service automatically.{C_END}")
+                 sys.exit(1)
+        else:
+            print(f"{C_FAIL}{EMOJI_ERROR} Could not detect a supported service manager (systemctl, service).{C_END}")
+            print(f"{C_WARNING}   Please start Tor manually and re-run the script.{C_END}")
+            sys.exit(1)
+    else:
+        print(f"{C_GREEN}{EMOJI_SUCCESS} Tor service is already running.{C_END}")
+
+# --- EXECUTE PRIORITIZED SETUP CHECKS ---
+require_venv_or_exit() # Step 1: Must be in VENV
+check_and_install_python_dependencies() # Step 2: Install Python packages (inside venv)
+ensure_tor_installed() # Step 3: Install Tor (system-wide)
+import time # time module is needed for ensure_tor_service_running sleep
+ensure_tor_service_running() # Step 4: Start Tor service
+
+print(f"{C_GREEN}{EMOJI_ROCKET}{C_BOLD} All system checks passed! KADDU YT-VIEWS is ready to launch!{C_END}\n")
+# --- PRIORITIZED SETUP ENDS HERE ---
+# --------------------------------------
+
+# --- MAIN APPLICATION IMPORTS START HERE ---
+# Removed colorama import and initialization block for Windows
+import random
 import requests
 from urllib.parse import urlparse
 import threading
 import signal
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import shutil # Added for shutil.which
+# shutil is already imported above
 import pyfiglet
 from rich.console import Console
 from rich.live import Live
@@ -19,6 +233,8 @@ from rich.text import Text
 
 # Import the refactored pytor.py
 import pytor
+# --- MAIN APPLICATION IMPORTS END HERE ---
+
 
 # -----------------------------
 # Color, Emoji, Banner, Spinner, and Utility Helpers
