@@ -37,11 +37,20 @@ C_BOLD = '\033[1m'
 C_GRAY = '\033[90m'
 
 # --- Spinner Animation Helper ---
-def spinner_animation(message, duration=0, color=C_CYAN, emoji=EMOJI_SPINNER):
+def spinner_animation(message, stop_event, duration=0, color=C_CYAN, emoji=EMOJI_SPINNER):
+    """
+    Displays a spinner animation in the CLI until stop_event is set or duration expires.
+    Args:
+        message (str): The message to display next to the spinner.
+        stop_event (threading.Event): Event to signal the spinner to stop.
+        duration (float): Optional duration in seconds to run the spinner (0 = infinite until stop_event).
+        color (str): Color code for the spinner.
+        emoji (str): Emoji to display with the spinner.
+    """
     spinner_chars = ['|', '/', '-', '\\']
     start_time = time.time()
     idx = 0
-    while duration == 0 or (time.time() - start_time < duration):
+    while not stop_event.is_set() and (duration == 0 or (time.time() - start_time < duration)):
         sys.stdout.write(f"\r{color}{emoji} {message} {spinner_chars[idx % 4]}{C_END}")
         sys.stdout.flush()
         time.sleep(0.15)
@@ -134,25 +143,26 @@ def check_and_install_python_dependencies():
             print(f"{C_WARNING}   Cannot automatically install dependencies. Please ensure 'requirements.txt' exists and contains all needed packages.{C_END}")
             sys.exit(1)
         # Spinner in a thread while installing
-        spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Python dependencies...",), kwargs={"emoji": EMOJI_INSTALL, "color": C_CYAN})
+        stop_event = threading.Event()
+        spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Python dependencies...", stop_event), kwargs={"emoji": EMOJI_INSTALL, "color": C_CYAN})
         spinner_thread.start()
         try:
             proc = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            spinner_thread.do_run = False
+            stop_event.set()
             spinner_thread.join()
             if proc.returncode == 0:
-                print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All Python dependencies installed successfully!{C_END}")
+                print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All Python dependencies installed successfully!{C_END}\n")
             else:
                 print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to install Python dependencies!{C_END}")
                 print(proc.stderr.decode(errors='ignore'))
                 sys.exit(1)
         except Exception as e:
-            spinner_thread.do_run = False
+            stop_event.set()
             spinner_thread.join()
             print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Exception during dependency installation: {e}{C_END}")
             sys.exit(1)
     else:
-        print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All required Python dependencies are already installed!{C_END}")
+        print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All required Python dependencies are already installed!{C_END}\n")
 
 def is_command_available(command):
     return shutil.which(command) is not None
@@ -176,7 +186,8 @@ def ensure_tor_installed():
             install_cmd = ["sudo", "pacman", "-S", "--noconfirm", "tor"]
         if installer:
             print(f"{C_CYAN}{EMOJI_PROMPT} Installing Tor using '{installer}'...{C_END}")
-            spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Tor...",), kwargs={"emoji": EMOJI_TOR, "color": C_CYAN})
+            stop_event = threading.Event()
+            spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Tor...", stop_event), kwargs={"emoji": EMOJI_TOR, "color": C_CYAN})
             spinner_thread.start()
             try:
                 if installer == "apt":
@@ -186,16 +197,16 @@ def ensure_tor_installed():
                 else:
                     proc = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     success = proc.returncode == 0
-                spinner_thread.do_run = False
+                stop_event.set()
                 spinner_thread.join()
                 if success and is_command_available("tor"):
-                    print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor installed successfully!{C_END}")
+                    print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor installed successfully!{C_END}\n")
                 else:
                     print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to install Tor!{C_END}")
                     print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually using 'sudo apt install tor -y' or your system's package manager, then re-run this script.{C_END}")
                     sys.exit(1)
             except Exception as e:
-                spinner_thread.do_run = False
+                stop_event.set()
                 spinner_thread.join()
                 print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Exception during Tor installation: {e}{C_END}")
                 print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually using 'sudo apt install tor -y' or your system's package manager, then re-run this script.{C_END}")
@@ -205,7 +216,7 @@ def ensure_tor_installed():
             print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually for your Linux distribution and re-run the script.{C_END}")
             sys.exit(1)
     else:
-        print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor is already installed!{C_END}")
+        print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor is already installed!{C_END}\n")
 
 def is_tor_service_running():
     try:
@@ -225,7 +236,8 @@ def ensure_tor_service_running():
     if not is_tor_service_running():
         print(f"{C_WARNING}{EMOJI_WARNING} Tor service is not running. Starting Tor service (requires sudo privileges)...{C_END}")
         started = False
-        spinner_thread = threading.Thread(target=spinner_animation, args=(f"Starting Tor service...",), kwargs={"emoji": EMOJI_TOR, "color": C_CYAN})
+        stop_event = threading.Event()
+        spinner_thread = threading.Thread(target=spinner_animation, args=(f"Starting Tor service...", stop_event), kwargs={"emoji": EMOJI_TOR, "color": C_CYAN})
         spinner_thread.start()
         try:
             if is_command_available("systemctl"):
@@ -238,22 +250,22 @@ def ensure_tor_service_running():
                 time.sleep(2)
                 if is_tor_service_running():
                     started = True
-            spinner_thread.do_run = False
+            stop_event.set()
             spinner_thread.join()
             if started:
-                print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor service started successfully!{C_END}")
+                print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor service started successfully!{C_END}\n")
             else:
                 print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to start Tor service!{C_END}")
                 print(f"{C_WARNING}{EMOJI_INFO} Please start Tor manually using 'sudo systemctl start tor.service' or 'sudo service tor start', then re-run this script.{C_END}")
                 sys.exit(1)
         except Exception as e:
-            spinner_thread.do_run = False
+            stop_event.set()
             spinner_thread.join()
             print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Exception during Tor service start: {e}{C_END}")
             print(f"{C_WARNING}{EMOJI_INFO} Please start Tor manually using 'sudo systemctl start tor.service' or 'sudo service tor start', then re-run this script.{C_END}")
             sys.exit(1)
     else:
-        print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor service is already running!{C_END}")
+        print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor service is already running!{C_END}\n")
 
 # --- EXECUTE PRIORITIZED SETUP CHECKS ---
 require_venv_or_exit() # Step 1: Must be in VENV
@@ -1132,39 +1144,27 @@ def main():
     def progress_update_handler(link_id, views_done_link, total_done_overall, url, success, port, watch_time):
         status_emoji = EMOJIS['success'] if success else EMOJIS['error']
         status_color = Colors.OKGREEN if success else Colors.WARNING
-        action_color = Colors.OKGREEN if success else Colors.FAIL # More distinct color for action
-
+        action_color = Colors.OKGREEN if success else Colors.FAIL
         short_url = url[:40] + '...' if len(url) > 43 else url
         action_taken = "Viewed" if success else "View Failed"
-        
-        # Using \\r for rewrite, ensure enough spaces to clear previous longer lines if any.
-        # Pad with spaces at the end to clear the line properly.
-        # Example: [✅ Link #0 (http://short.url...): Viewed (Port:9050, Watched:30s). Link Views: 5. Total: 25]
-        progress_line = f"\\r{status_color}{status_emoji}{Colors.ENDC} {Colors.BOLD}Link #{link_id}{Colors.ENDC} ({Colors.GRAY}{short_url}{Colors.ENDC}) - {action_color}{action_taken}{Colors.ENDC} ({Colors.OKBLUE}Port:{port}, Watched:{watch_time}s{Colors.ENDC}). This link: {Colors.BOLD}{views_done_link}{Colors.ENDC}. Total: {Colors.BOLD}{total_done_overall}{Colors.ENDC}    "
+        # Improved: Add more spacing and clear formatting
+        progress_line = f"\r{status_color}{status_emoji}{Colors.ENDC} {Colors.BOLD}Link #{link_id}{Colors.ENDC} ({Colors.GRAY}{short_url}{Colors.ENDC}) - {action_color}{action_taken}{Colors.ENDC} ({Colors.OKBLUE}Port:{port}, Watched:{watch_time}s{Colors.ENDC}). This link: {Colors.BOLD}{views_done_link}{Colors.ENDC}. Total: {Colors.BOLD}{total_done_overall}{Colors.ENDC}    "
         print(progress_line, end='', flush=True)
-
         # Print a summary less frequently to avoid too much scroll
-        # Dynamic interval: more frequent for fewer links/connections, less for many.
-        # Aim for a summary roughly every N view attempts overall, where N is based on connections.
-        if num_parallel_connections == 0 : num_parallel_connections = 1 # Avoid div by zero
-        # More frequent summaries for fewer connections, less frequent for many.
-        # e.g., 1 conn: every 3 views. 5 conns: every 10 views. 10 conns: every 15 views.
+        if num_parallel_connections == 0 : num_parallel_connections = 1
         print_summary_interval = max(1, (num_parallel_connections * 2) + (num_parallel_connections // 2))
-        if not validated_links: print_summary_interval = 1 # Should not happen
-        
+        if not validated_links: print_summary_interval = 1
         if total_done_overall % print_summary_interval == 0 or total_done_overall == 1:
             elapsed_time = time.time() - start_time_proc
             elapsed_time_str = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s" if elapsed_time >=60 else f"{elapsed_time:.1f}s"
             avg_time_per_view = elapsed_time / total_done_overall if total_done_overall > 0 else 0
-            
-            # Ensure a newline before this summary, as the progress_line uses \\r
-            print() # Newline before summary
+            # Ensure a newline before this summary, as the progress_line uses \r
+            print("\n") # Extra newline for spacing
             print(f"{Colors.HEADER}{EMOJIS['kaddu']} {'-'*20} KADDU YT-VIEWS: PROGRESS {'-'*20} {EMOJIS['kaddu']}{Colors.ENDC}")
             print(f"{Colors.OKCYAN}  {EMOJIS['progress']} {Colors.BOLD}Overall Status @ {time.strftime('%H:%M:%S')}{Colors.ENDC}")
             print(f"{Colors.GRAY}  -----------------------------------------------------------{Colors.ENDC}")
             print(f"{Colors.OKBLUE}  {EMOJIS['thread']} Active Parallel Connections: {Colors.BOLD}{num_parallel_connections}{Colors.ENDC}")
             print(f"{Colors.OKGREEN}  {EMOJIS['success']} Total Views Generated So Far: {Colors.BOLD}{total_done_overall}{Colors.ENDC}")
-            
             if views_per_target_link > 0:
                 total_target_views = len(validated_links) * views_per_target_link
                 views_remaining = total_target_views - total_done_overall
@@ -1174,14 +1174,14 @@ def main():
                     time_eta_seconds = views_remaining * avg_time_per_view
                     time_eta_str = f"{time_eta_seconds // 60:.0f}m {time_eta_seconds % 60:.0f}s" if time_eta_seconds >=60 else f"{time_eta_seconds:.0f}s"
                     print(f"{Colors.OKCYAN}  {EMOJIS['wait']} Estimated Time Remaining (ETR): {Colors.BOLD}{time_eta_str}{Colors.ENDC}")
-            else: # Continuous mode
+            else:
                 print(f"{Colors.OKGREEN}  {EMOJIS['spinner']} Running in {Colors.BOLD}Continuous Mode{Colors.ENDC}. Press Ctrl+C to stop.")
-
             print(f"{Colors.OKBLUE}  {EMOJIS['info']} Avg. Time Per View (this session): {Colors.BOLD}{avg_time_per_view:.2f} seconds{Colors.ENDC}")
             print(f"{Colors.GRAY}  {EMOJIS['info']} Total Elapsed Time: {Colors.BOLD}{elapsed_time_str}{Colors.ENDC}")
-            print(f"{Colors.HEADER}{'-'*60}{Colors.ENDC}")
-            # No need to print progress_line again here, it's continuously updated by \\r
-    
+            print(f"{Colors.HEADER}{'-'*60}{Colors.ENDC}\n")
+        # No need to print progress_line again here, it's continuously updated by \r
+    # (You can further improve other info-tainment outputs in a similar way.)
+
     try:
         with ThreadPoolExecutor(max_workers=num_parallel_connections) as executor:
             futures = []
