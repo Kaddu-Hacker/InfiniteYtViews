@@ -142,12 +142,12 @@ def check_and_install_python_dependencies():
             print(f"{C_FAIL}{EMOJI_ERROR} {C_BOLD}CRITICAL: 'requirements.txt' not found!{C_END}")
             print(f"{C_WARNING}   Cannot automatically install dependencies. Please ensure 'requirements.txt' exists and contains all needed packages.{C_END}")
             sys.exit(1)
-        # Spinner in a thread while installing
         stop_event = threading.Event()
         spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Python dependencies...", stop_event), kwargs={"emoji": EMOJI_INSTALL, "color": C_CYAN})
         spinner_thread.start()
         try:
-            proc = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Use pip non-interactive mode and add a timeout
+            proc = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-input", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
             stop_event.set()
             spinner_thread.join()
             if proc.returncode == 0:
@@ -156,11 +156,17 @@ def check_and_install_python_dependencies():
                 print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to install Python dependencies!{C_END}")
                 print(proc.stderr.decode(errors='ignore'))
                 sys.exit(1)
+        except subprocess.TimeoutExpired:
+            stop_event.set()
+            spinner_thread.join()
+            print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} pip install timed out!{C_END}")
+            sys.exit(1)
         except Exception as e:
             stop_event.set()
             spinner_thread.join()
             print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Exception during dependency installation: {e}{C_END}")
             sys.exit(1)
+        print(f"{C_INFO}{EMOJI_INFO} Dependency installation step finished.{C_END}")
     else:
         print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All required Python dependencies are already installed!{C_END}\n")
 
@@ -191,11 +197,11 @@ def ensure_tor_installed():
             spinner_thread.start()
             try:
                 if installer == "apt":
-                    proc1 = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    proc2 = subprocess.run(install_cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    proc1 = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+                    proc2 = subprocess.run(install_cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
                     success = proc1.returncode == 0 and proc2.returncode == 0
                 else:
-                    proc = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    proc = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
                     success = proc.returncode == 0
                 stop_event.set()
                 spinner_thread.join()
@@ -203,14 +209,25 @@ def ensure_tor_installed():
                     print(f"{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor installed successfully!{C_END}\n")
                 else:
                     print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to install Tor!{C_END}")
+                    if installer == "apt":
+                        print(proc1.stderr.decode(errors='ignore'))
+                        print(proc2.stderr.decode(errors='ignore'))
+                    else:
+                        print(proc.stderr.decode(errors='ignore'))
                     print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually using 'sudo apt install tor -y' or your system's package manager, then re-run this script.{C_END}")
                     sys.exit(1)
+            except subprocess.TimeoutExpired:
+                stop_event.set()
+                spinner_thread.join()
+                print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Tor installation timed out!{C_END}")
+                sys.exit(1)
             except Exception as e:
                 stop_event.set()
                 spinner_thread.join()
                 print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Exception during Tor installation: {e}{C_END}")
                 print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually using 'sudo apt install tor -y' or your system's package manager, then re-run this script.{C_END}")
                 sys.exit(1)
+            print(f"{C_INFO}{EMOJI_INFO} Tor installation step finished.{C_END}")
         else:
             print(f"{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Could not detect a supported package manager (apt, yum, pacman).{C_END}")
             print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually for your Linux distribution and re-run the script.{C_END}")
