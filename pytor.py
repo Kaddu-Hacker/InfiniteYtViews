@@ -1,3 +1,6 @@
+# NOTE: This file is now always imported after all dependencies and Tor are ensured by main.py.
+# No need to check for dependencies or Tor installation here. Only provide Tor/IP utility functions.
+
 import os
 import sys
 import time
