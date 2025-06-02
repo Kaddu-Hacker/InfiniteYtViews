@@ -7,6 +7,43 @@ import shutil
 import importlib.util
 import time
 import threading
+import platform
+import urllib.request
+import zipfile
+import tarfile
+from urllib.parse import urlparse
+import concurrent.futures
+import itertools
+import random
+import re
+
+# --- SELENIUM IMPORTS ---
+from selenium import webdriver
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+# from selenium.webdriver.chrome.options import Options as ChromeOptions # Example for Chrome
+# from selenium.webdriver.chrome.service import Service as ChromeService # Example for Chrome
+from selenium.webdriver.common.proxy import Proxy, ProxyType
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException, WebDriverException
+
+# --- OTHER STANDARD IMPORTS ---
+# import itertools # Moved up
+# import random # Moved up
+
+# --- PYTOR IMPORT ---
+# Attempt to import the local pytor.py module
+try:
+    import pytor
+    # print(f"{C_GREEN}Successfully imported pytor module.{C_END}") # Optional: for debugging initial setup
+except ImportError:
+    print(f"{C_WARNING}{EMOJI_WARNING} pytor.py module not found. IP changing and advanced Tor management will be limited.{C_END}")
+    pytor = None # Define pytor as None so checks like 'if pytor:' don't raise NameError
+except Exception as e:
+    print(f"{C_FAIL}{EMOJI_ERROR} Error importing pytor: {e}. IP changing may be affected.{C_END}")
+    pytor = None
 
 # --------------------------------------
 # --- PRIORITIZED SETUP STARTS HERE ---
@@ -31,11 +68,11 @@ EMOJI_DRY_RUN = "📝"
 EMOJI_VIEW = "👀"
 EMOJI_THANKS = "🙏"
 EMOJI_STAR = "⭐"
-EMOJI_VIDEO = "📹"  # Added
-EMOJI_SHORT = "⏱️"  # Added
-EMOJI_LINK = "🔗"   # Already present, confirmed
-EMOJI_THREADS = "🧵" # Added
-EMOJI_WAIT = "⏳"    # Added
+EMOJI_VIDEO = "📹"
+EMOJI_SHORT = "⏱️"
+EMOJI_LINK = "🔗"
+EMOJI_THREADS = "🧵"
+EMOJI_WAIT = "⏳"
 
 C_HEADER = '\033[95m'
 C_BLUE = '\033[94m'
@@ -46,31 +83,400 @@ C_FAIL = '\033[91m'
 C_END = '\033[0m'
 C_BOLD = '\033[1m'
 C_GRAY = '\033[90m'
-C_UNDERLINE = '\033[4m' # Added
-# --- MISSING COLOR CONSTANTS ADDED BELOW ---
-C_YELLOW = '\033[93m'  # Bright yellow (same as C_WARNING for compatibility)
-C_WHITE = '\033[97m'   # Bright white
-C_OKBLUE = C_BLUE       # Alias for compatibility with old code
-C_OKGREEN = C_GREEN     # Alias for compatibility with old code
+C_UNDERLINE = '\033[4m'
+C_YELLOW = '\033[93m'
+C_WHITE = '\033[97m'
+C_OKBLUE = C_BLUE
+C_OKGREEN = C_GREEN
 
-# --- HELP TEXT Placeholder ---
-HELP_TEXT = """ 
-Placeholder for KADDU YT-VIEWS Help Information.
+# --- HELP TEXT (IMPROVED) ---
+HELP_TEXT = f""" 
+KADDU YT-VIEWS Help & Troubleshooting
 
-Common Commands:
+Usage:
+  - Run this script with: python3 main.py
+  - Follow the prompts to enter YouTube links, number of views, and connections.
   - Type 'help' at any prompt to see this message.
 
 Troubleshooting:
-  - Ensure you are in a Python virtual environment.
-  - Ensure Tor is installed and running.
-  - If using multiple connections, ensure your torrc is configured for multiple SOCKS ports (e.g., 9050, 9052, 9054...).
-  - For issues with sudo, try 'sudo -E python3 main.py'.
+  - Ensure you are in a Python virtual environment (venv).
+  - The script will attempt to install all dependencies automatically.
+  - If Tor or geckodriver cannot be installed automatically, the script will print the download URL and instructions.
+  - If you see a permissions error, try running with: sudo -E python3 main.py
+  - For more info, see the README.md or visit: https://github.com/Kaddu-Hacker/InfiniteYtViews
 
-More details will be added here.
+Contact:
+  - For issues, open an issue on GitHub or contact the maintainer.
 """
 
 # --- GLOBAL STOP EVENT FOR THREAD CONTROL ---
 stop_event_global = threading.Event()
+
+# --- GLOBAL LOCK FOR THREADING ---
+completed_views_lock = threading.Lock()
+
+# --- GLOBAL COUNTERS FOR VIEWS ---
+overall_completed_views_total = 0
+overall_failed_attempts_total = 0
+
+# --- USER AGENT LIST (Expanded for better non-detectability) ---
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0", # Firefox 109 was a ESR version
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0", # Older ESR Firefox for Linux
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (iPad; CPU OS 16_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/109.0.5414.74",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Version/16.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/109.0",
+    # Consider using a library for more diverse and up-to-date user agents in a production tool.
+]
+
+def get_random_user_agent():
+    """Selects a random user agent from the list."""
+    if not USER_AGENTS: # Fallback in case list is somehow empty
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    return random.choice(USER_AGENTS)
+
+# --- INFOTAINMENT MESSAGES ---
+INFOTAINMENT_MESSAGES = [
+    "🚀 Fun Fact: The first YouTube video was 'Me at the zoo', uploaded on April 23, 2005.",
+    "💡 Tip: A stable internet connection improves view success rates!",
+    "🌟 Keep Going: Every simulated view is a step towards your goal!",
+    "🤓 Tech Tidbit: Tor stands for 'The Onion Router'.",
+    "🎉 Progress: You're making great progress with KADDU YT-VIEWS!",
+    "✨ Stay Curious: Explore the world of privacy tech!",
+    "🧐 Did You Know: Selenium is a powerful tool for web automation.",
+    "⏳ Patience is Key: Good things take time, especially with network anonymization.",
+    "💖 Thanks for using KADDU YT-VIEWS! Consider starring the project on GitHub!",
+    "🌍 Reminder: Use this tool responsibly and ethically.",
+    "🔒 Privacy Tip: Always use a fresh Tor circuit for each session!",
+    "🧅 Onion Routing: Your traffic is layered for maximum privacy.",
+    "📈 Analytics: YouTube uses advanced detection, so randomness is your friend!",
+    "🦾 Automation: This script automates everything for you, just sit back and relax!",
+    "🛡️ Security: Never share your Tor identity with anyone.",
+    "🎬 Entertainment: Enjoy the ASCII art banner at every launch!",
+    "🧠 Knowledge: Learn more about Tor at torproject.org.",
+    "🔄 Rotation: Each view uses a new Tor IP for best results.",
+    "🧪 Experiment: Try different user agents for more realism.",
+    "🦉 Wisdom: The best privacy is the one you control!"
+]
+
+def get_random_infotainment():
+    return random.choice(INFOTAINMENT_MESSAGES)
+
+# --- Ensure geckodriver is available ---
+def ensure_geckodriver_available():
+    """
+    Ensures geckodriver is available in PATH. If not, downloads and extracts it to ./drivers/ and adds to PATH.
+    """
+    import shutil
+    import stat
+    GECKO_URL_BASE = "https://github.com/mozilla/geckodriver/releases/latest/download/"
+    drivers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
+    os.makedirs(drivers_dir, exist_ok=True)
+    geckodriver_name = "geckodriver.exe" if os.name == "nt" else "geckodriver"
+    gecko_local_path = os.path.join(drivers_dir, geckodriver_name)
+
+    # 1. Check if geckodriver is already in PATH
+    if shutil.which("geckodriver"):
+        print(f"{C_GREEN}{EMOJI_SUCCESS} geckodriver is already available in PATH.{C_END}")
+        return
+    # 2. Check if it's in ./drivers/ and add to PATH if found
+    if os.path.exists(gecko_local_path):
+        # Ensure it's executable if on Unix-like systems
+        if os.name != "nt" and not os.access(gecko_local_path, os.X_OK):
+            try:
+                os.chmod(gecko_local_path, os.stat(gecko_local_path).st_mode | stat.S_IEXEC)
+                print(f"{C_GREEN}{EMOJI_INFO} Made geckodriver in ./drivers/ executable.{C_END}")
+            except Exception as e:
+                print(f"{C_WARNING}{EMOJI_WARNING} Could not set executable permission on geckodriver: {e}{C_END}")
+        
+        os.environ["PATH"] = drivers_dir + os.pathsep + os.environ["PATH"]
+        print(f"{C_GREEN}{EMOJI_SUCCESS} geckodriver found in ./drivers/. Added to PATH for this session.{C_END}")
+        if shutil.which("geckodriver"): # Verify it's now findable
+             print(f"{C_GREEN}{EMOJI_SUCCESS} geckodriver confirmed in PATH after adding ./drivers/.{C_END}")
+        else:
+             print(f"{C_WARNING}{EMOJI_WARNING} Added ./drivers/ to PATH, but geckodriver still not found by shutil.which(). Manual check needed.{C_END}")
+        return
+
+    # 3. Detect OS and arch for download
+    sys_plat = platform.system().lower()
+    arch = platform.machine().lower()
+
+    if sys_plat.startswith("win"): # Windows (win32 or win64)
+        gecko_asset = "geckodriver-latest-win64.zip" if "64" in arch else "geckodriver-latest-win32.zip"
+    elif sys_plat == "darwin": # macOS
+        gecko_asset = "geckodriver-latest-macos-aarch64.tar.gz" if arch == "arm64" else "geckodriver-latest-macos.tar.gz"
+    elif sys_plat == "linux": # Linux
+        if arch in ("x86_64", "amd64"):
+            gecko_asset = "geckodriver-latest-linux64.tar.gz"
+        elif arch in ("aarch64", "arm64"): # Added arm64 for Linux
+            gecko_asset = "geckodriver-latest-linux-aarch64.tar.gz"
+        elif arch == "armv7l": # Example for 32-bit ARM
+             gecko_asset = "geckodriver-latest-linux-arm7hf.tar.gz" # Note: Check exact filename from Mozilla
+        else:
+            print(f"{C_FAIL}{EMOJI_ERROR} Unsupported Linux architecture for geckodriver: {arch}{C_END}")
+            print(f"{C_CYAN}{EMOJI_INFO} Please download geckodriver manually for your system and place it in the PATH or in the ./drivers/ directory.{C_END}")
+            print(f"{C_CYAN}{EMOJI_INFO} Download geckodriver manually from: https://github.com/mozilla/geckodriver/releases/latest{C_END}")
+            # Manual install instructions only, no QR code logic
+            try:
+                import webbrowser
+                webbrowser.open("https://github.com/mozilla/geckodriver/releases/latest")
+            except Exception:
+                pass
+            return
+    else:
+        print(f"{C_FAIL}{EMOJI_ERROR} Unsupported OS for geckodriver: {sys_plat}{C_END}")
+        print(f"{C_CYAN}{EMOJI_INFO} Please download geckodriver manually for your system and place it in the PATH or in the ./drivers/ directory.{C_END}")
+        print(f"{C_CYAN}{EMOJI_INFO} Download geckodriver manually from: https://github.com/mozilla/geckodriver/releases/latest{C_END}")
+        # Manual install instructions only, no QR code logic
+        try:
+            import webbrowser
+            webbrowser.open("https://github.com/mozilla/geckodriver/releases/latest")
+        except Exception:
+            pass
+        return
+
+    gecko_url = GECKO_URL_BASE + gecko_asset
+    print(f"{C_CYAN}{EMOJI_INFO} Downloading geckodriver from: {gecko_url}{C_END}")
+    archive_path = os.path.join(drivers_dir, gecko_asset)
+    try:
+        urllib.request.urlretrieve(gecko_url, archive_path)
+    except Exception as e:
+        print(f"{C_FAIL}{EMOJI_ERROR} Failed to download geckodriver: {e}{C_END}")
+        print(f"{C_CYAN}{EMOJI_INFO} Please download geckodriver manually and place it in the PATH or in the ./drivers/ directory.{C_END}")
+        return
+
+    # 4. Extract
+    try:
+        if archive_path.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(drivers_dir)
+        elif archive_path.endswith(".tar.gz"):
+            with tarfile.open(archive_path, 'r:gz') as tar_ref:
+                # Ensure the extracted geckodriver is placed directly in drivers_dir, not a subdirectory
+                for member in tar_ref.getmembers():
+                    if member.name == geckodriver_name or member.name.endswith('/' + geckodriver_name):
+                         member.name = os.path.basename(member.name) # Strip any parent folders from archive
+                         tar_ref.extract(member, drivers_dir)
+                         break # Found and extracted
+                else: # if no break
+                    # Fallback if specific extraction failed, try extracting all
+                    tar_ref.extractall(drivers_dir)
+
+
+        else:
+            print(f"{C_FAIL}{EMOJI_ERROR} Unknown archive format for geckodriver: {archive_path}{C_END}")
+            return
+        print(f"{C_GREEN}{EMOJI_SUCCESS} geckodriver extracted to {drivers_dir}{C_END}")
+    except Exception as e:
+        print(f"{C_FAIL}{EMOJI_ERROR} Failed to extract geckodriver: {e}{C_END}")
+        return
+    finally:
+        try:
+            if os.path.exists(archive_path): os.remove(archive_path)
+        except Exception:
+            pass # Non-critical if removal fails
+
+    # 5. Set permissions (Linux/Mac) and re-check local path
+    if not os.path.exists(gecko_local_path):
+        print(f"{C_FAIL}{EMOJI_ERROR} geckodriver not found at {gecko_local_path} after extraction. Please check the archive contents or install manually.{C_END}")
+        print(f"{C_CYAN}{EMOJI_INFO} Download geckodriver manually from: https://github.com/mozilla/geckodriver/releases/latest{C_END}")
+        # Manual install instructions only, no QR code logic
+        try:
+            import webbrowser
+            webbrowser.open("https://github.com/mozilla/geckodriver/releases/latest")
+        except Exception:
+            pass
+        return
+
+    if os.name != "nt":
+        try:
+            os.chmod(gecko_local_path, os.stat(gecko_local_path).st_mode | stat.S_IEXEC)
+        except Exception as e:
+            print(f"{C_WARNING}{EMOJI_WARNING} Could not set executable permission on geckodriver at {gecko_local_path}: {e}{C_END}")
+
+    # 6. Add to PATH for this process
+    os.environ["PATH"] = drivers_dir + os.pathsep + os.environ["PATH"]
+    if shutil.which("geckodriver"):
+        print(f"{C_GREEN}{EMOJI_SUCCESS} geckodriver is ready and added to PATH for this session!{C_END}")
+    else:
+        print(f"{C_WARNING}{EMOJI_WARNING} geckodriver downloaded and extracted to ./drivers/, and ./drivers/ added to PATH, but shutil.which() still cannot find it. Selenium might fail if geckodriver is not discoverable. Ensure {gecko_local_path} is executable and correctly named.{C_END}")
+
+
+# --- SIMULATE VIEW WITH SELENIUM ---
+def simulate_view_with_selenium(video_url, tor_socks_port, watch_duration, link_title="N/A"):
+    """
+    Simulates viewing a YouTube video using Selenium with Firefox routed through Tor.
+    Uses a random user agent and attempts to handle pop-ups and play buttons.
+    Enhanced privacy options for non-detectability.
+    """
+    print(f"{C_CYAN}{EMOJI_VIEW} Attempting to view '{link_title}' ({video_url[:40]}...) via Port {tor_socks_port} for {watch_duration}s using Selenium...{C_END}")
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+    options = FirefoxOptions()
+    options.add_argument("--headless")
+    options.set_preference("general.useragent.override", get_random_user_agent())
+    options.set_preference("network.proxy.type", 1)
+    options.set_preference("network.proxy.socks", "127.0.0.1")
+    options.set_preference("network.proxy.socks_port", int(tor_socks_port))
+    options.set_preference("network.proxy.socks_remote_dns", True)
+    options.set_preference("media.volume_scale", "0.0")
+    # Enhanced privacy options
+    options.set_preference("media.peerconnection.enabled", False)
+    options.set_preference("geo.enabled", False)
+    options.set_preference("privacy.trackingprotection.enabled", True)
+    options.set_preference("privacy.trackingprotection.fingerprinting.enabled", True)
+    options.set_preference("privacy.trackingprotection.cryptomining.enabled", True)
+    options.set_preference("privacy.donottrackheader.enabled", True)
+    options.set_preference("network.cookie.cookieBehavior", 5)
+    options.set_preference("dom.webdriver.enabled", False)
+    options.set_preference("useAutomationExtension", False)
+    # options.set_preference("privacy.resistFingerprinting", True) # Can break sites
+    driver = None
+    try:
+        driver = webdriver.Firefox(options=options)
+        driver.set_page_load_timeout(100)
+        print(f"{C_GRAY}  Selenium: Navigating to {video_url} via Tor port {tor_socks_port}...{C_END}")
+        driver.get(video_url)
+        print(f"{C_GRAY}  Selenium: Waiting for video element or YouTube page title...{C_END}")
+        WebDriverWait(driver, 60).until(
+             EC.any_of(
+                EC.presence_of_element_located((By.TAG_NAME, "video")),
+                EC.title_contains("YouTube") 
+            )
+        )
+        print(f"{C_GREEN}  Selenium: Page appears loaded (video or YT title found).{C_END}")
+        
+        # Attempt to handle cookie consent pop-ups (more robust selectors)
+        consent_selectors = [
+            "//button[.//span[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept all')]]",
+            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept all')]",
+            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'agree to all')]",
+            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'i agree')]",
+            "//button[@id='L2AGLb']", # Google's specific ID
+            "//div[@role='dialog']//button[contains(text(), 'Accept') or contains(text(), 'Agree') or contains(text(), 'Allow') or contains(text(),'OK')]",
+            "form[action*='consent.youtube.com'] button",
+            "//button[@aria-label='Accept all']"
+        ]
+        consent_clicked = False
+        for i, selector in enumerate(consent_selectors):
+            if stop_event_global.is_set(): raise KeyboardInterrupt("Stop signal during consent check")
+            try:
+                consent_button = WebDriverWait(driver, 5).until( # Shorter timeout for each attempt
+                    EC.element_to_be_clickable((By.XPATH if selector.startswith("//") else By.CSS_SELECTOR, selector))
+                )
+                print(f"{C_GRAY}  Selenium: Found potential consent button (selector #{i+1}). Clicking...{C_END}")
+                # Try JavaScript click first, as it can be more reliable for complex elements
+                driver.execute_script("arguments[0].scrollIntoView(true); arguments[0].click();", consent_button)
+                print(f"{C_GREEN}  Selenium: Clicked consent button (selector #{i+1}).{C_END}")
+                consent_clicked = True
+                time.sleep(random.uniform(2, 5)) # Wait for pop-up to disappear/page to react
+                break 
+            except TimeoutException:
+                if i == len(consent_selectors) - 1 and not consent_clicked:
+                    print(f"{C_GRAY}  Selenium: No generic consent pop-up button found or needed after all attempts.{C_END}")
+            except Exception as e_consent:
+                print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Minor error trying to click consent button (Selector #{i+1}): {str(e_consent).splitlines()[0]}{C_END}")
+        
+        # Attempt to click the main play button on YouTube if video is not auto-playing
+        try:
+            if stop_event_global.is_set(): raise KeyboardInterrupt("Stop signal before play check")
+            video_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "video")))
+            is_paused = driver.execute_script("return arguments[0].paused;", video_element)
+            
+            if is_paused:
+                print(f"{C_GRAY}  Selenium: Video detected as paused. Attempting to click play button...{C_END}")
+                play_button_selectors = [
+                    "button.ytp-large-play-button.ytp-button",
+                    "button[aria-label='Play (k)']",
+                    "button[data-title-no-tooltip='Play']",
+                    ".html5-main-video" # Clicking the video element itself as a last resort
+                ]
+                play_button_clicked_success = False
+                for pb_selector in play_button_selectors:
+                    if stop_event_global.is_set(): raise KeyboardInterrupt("Stop signal during play button check")
+                    try:
+                        play_button = WebDriverWait(driver, 3).until(
+                            EC.element_to_be_clickable((By.CSS_SELECTOR, pb_selector))
+                        )
+                        if play_button and play_button.is_displayed():
+                            # play_button.click() # Standard click
+                            driver.execute_script("arguments[0].scrollIntoView(true); arguments[0].click();", play_button) # JS Click
+                            print(f"{C_GREEN}  Selenium: Clicked video play button (selector: {pb_selector}).{C_END}")
+                            play_button_clicked_success = True
+                            time.sleep(random.uniform(1,3)) # Give time for play to start
+                            break
+                    except Exception:
+                        pass 
+                if not play_button_clicked_success:
+                    print(f"{C_GRAY}  Selenium: Could not find/click a main play button, or video started playing automatically/differently.{C_END}")
+            else:
+                print(f"{C_GRAY}  Selenium: Video appears to be playing or autoplaying (not explicitly paused).{C_END}")
+
+        except TimeoutException:
+            print(f"{C_GRAY}  Selenium: Video element or play button not found/interactable as expected (might be autoplaying or structure changed).{C_END}")
+        except KeyboardInterrupt as ki:
+            raise ki # Re-raise to be caught by main try-except
+        except Exception as e_play:
+            print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Minor error interacting with video/play button: {str(e_play)[:100]}{C_END}")
+
+        # Simulate watch time with slight variation and interruption check
+        actual_watch_duration = max(5, int(watch_duration + random.uniform(-watch_duration * 0.1, watch_duration * 0.1)))
+        
+        print(f"{C_GRAY}  Selenium: Simulating watch time for ~{actual_watch_duration} seconds... (Ctrl+C to stop this view){C_END}")
+        start_watch_time = time.time()
+        while time.time() - start_watch_time < actual_watch_duration:
+            if stop_event_global.is_set():
+                print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Watch time for '{link_title}' on Port {tor_socks_port} interrupted by global stop signal.{C_END}")
+                # if driver: driver.save_screenshot(f"interrupt_watch_{link_title[:10]}_{tor_socks_port}.png")
+                return False, "Watch interrupted by stop signal"
+            time.sleep(1) 
+            
+        print(f"{C_GREEN}{EMOJI_SUCCESS} Selenium: Successfully simulated view for '{link_title}' for {actual_watch_duration}s.{C_END}")
+        # if driver: driver.save_screenshot(f"success_{link_title[:10]}_{tor_socks_port}.png")
+        return True, f"Watched for {actual_watch_duration}s"
+    
+    except KeyboardInterrupt: # Catch Ctrl+C specifically during Selenium ops
+        print(f"\\n{C_YELLOW}{EMOJI_WARNING} Selenium: View for '{link_title}' (Port {tor_socks_port}) interrupted by user (Ctrl+C).{C_END}")
+        # if driver: driver.save_screenshot(f"ctrl_c_{link_title[:10]}_{tor_socks_port}.png")
+        return False, "View interrupted by user (Ctrl+C)"
+    except TimeoutException as e:
+        error_msg = f"Selenium: Page load timeout or element not found for '{link_title}'. Port: {tor_socks_port}. Error: {str(e).splitlines()[0]}"
+        print(f"{C_FAIL}{EMOJI_ERROR} {error_msg}{C_END}")
+        # if driver: driver.save_screenshot(f"error_timeout_{link_title[:10]}_{tor_socks_port}.png")
+        return False, error_msg
+    except WebDriverException as e:
+        error_msg = f"Selenium: WebDriverException for '{link_title}'. Port: {tor_socks_port}. Error: {str(e).splitlines()[0]}"
+        if "Proxy CONNECT aborted" in str(e) or "SOCKS_PROXY_FAILED" in str(e) or "connection refused" in str(e).lower():
+            error_msg = f"Selenium: Tor SOCKS Port {tor_socks_port} connection issue for '{link_title}'. Is Tor running and accessible? Error: {str(e).splitlines()[0]}"
+        elif "Reached error page" in str(e):
+             error_msg = f"Selenium: Browser reached an error page for '{link_title}' on Port {tor_socks_port}."
+        elif "new session" in str(e).lower() or "unable to connect to geckodriver" in str(e).lower():
+            error_msg = f"Selenium: Failed to start new browser session or connect to geckodriver on Port {tor_socks_port}. Ensure geckodriver is correctly installed and in PATH. Error: {str(e).splitlines()[0]}"
+        print(f"{C_FAIL}{EMOJI_ERROR} {error_msg}{C_END}")
+        # if driver: driver.save_screenshot(f"error_webdriver_{link_title[:10]}_{tor_socks_port}.png")
+        return False, error_msg
+    except Exception as e:
+        error_msg = f"Selenium: An unexpected error occurred for '{link_title}'. Port: {tor_socks_port}. Error: {type(e).__name__} - {str(e).splitlines()[0]}"
+        print(f"{C_FAIL}{EMOJI_ERROR} {error_msg}{C_END}")
+        # if driver: driver.save_screenshot(f"error_unexpected_{link_title[:10]}_{tor_socks_port}.png")
+        return False, error_msg
+    finally:
+        if driver:
+            print(f"{C_GRAY}  Selenium: Closing browser for '{link_title}' (Port {tor_socks_port})...{C_END}")
+            try:
+                driver.quit()
+            except Exception as e_quit:
+                print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Error during browser quit for port {tor_socks_port}: {type(e_quit).__name__} - {str(e_quit).splitlines()[0]}{C_END}")
 
 # --- Root Check Function (MOVED HERE) ---
 def check_root():
@@ -105,16 +511,27 @@ def spinner_animation(message, stop_event, duration=0, color=C_CYAN, emoji=EMOJI
     spinner_chars = ['|', '/', '-', '\\']
     start_time = time.time()
     idx = 0
-    while not stop_event.is_set() and (duration == 0 or (time.time() - start_time < duration)):
-        sys.stdout.write(f"\r{color}{emoji} {message} {spinner_chars[idx % 4]}{C_END}")
+    original_message = message
+    try:
+        while not stop_event.is_set() and (duration == 0 or (time.time() - start_time < duration)):
+            # Truncate message if too long for a single line with spinner
+            max_msg_len = shutil.get_terminal_size((80, 20)).columns - 10
+            display_message = original_message
+            if len(original_message) > max_msg_len:
+                display_message = original_message[:max_msg_len-3] + "..."
+
+            sys.stdout.write(f"\r{color}{emoji} {display_message} {spinner_chars[idx % 4]}{C_END}")
+            sys.stdout.flush()
+            time.sleep(0.15)
+            idx += 1
+    except Exception: # Handle cases where terminal size might not be available (e.g. non-interactive env)
+        pass # Just stop the spinner on error
+    finally: # Ensure spinner line is cleared
+        sys.stdout.write("\r" + " " * (shutil.get_terminal_size((80, 20)).columns -1) + "\r")
         sys.stdout.flush()
-        time.sleep(0.15)
-        idx += 1
-    sys.stdout.write("\r" + " " * (len(message) + 10) + "\r")
-    sys.stdout.flush()
 
 # --- Animated Banner ---
-def print_animated_banner(): # This is the primary banner function
+def print_animated_banner():
     try:
         import pyfiglet
         from rich.console import Console
@@ -135,12 +552,12 @@ def print_animated_banner(): # This is the primary banner function
     
     # Load custom ASCII art from file
     ascii_art_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ASCII')
-    ascii_art_content = ""
+    ascii_art_content = Text("KADDU ASCII ART MISSING", style="bold red")
     if os.path.exists(ascii_art_path):
         with open(ascii_art_path, 'r', encoding='utf-8') as f:
             # Read the whole art as one block for better centering
             raw_art = f.read()
-            # Ensure Rich formatting is applied line by line if needed or as a whole block
+            # Ensure Rich formatting is applied line by line if needed
             # For pre-formatted ASCII, direct printing with Align might be best.
             # If the ASCII itself contains Rich tags, Text.from_markup might be better.
             ascii_art_content = Text(raw_art, style="bold green") # Apply a base style
@@ -148,7 +565,7 @@ def print_animated_banner(): # This is the primary banner function
         ascii_art_content = Text("KADDU ASCII ART MISSING", style="bold red")
 
     # Prepare big 'KADDU' ASCII text using pyfiglet
-    kaddu_text_figlet = pyfiglet.figlet_format("KADDU", font="big")
+    kaddu_text_figlet = pyfiglet.figlet_format("KADDU", font="slant")
     kaddu_text_rich = Text(kaddu_text_figlet, style="bold magenta")
 
     # Animate custom ASCII art (if present) and then KADDU figlet text
@@ -195,1154 +612,939 @@ def require_venv_or_exit():
         print(f"{C_GRAY}  (The -E flag preserves your venv environment variables for sudo){C_END}")
 
 def check_and_install_python_dependencies():
-    print(f"{C_BLUE}{EMOJI_INSTALL} Checking Python dependencies (requests, PySocks, pyfiglet, rich)...{C_END}")
-    required_modules = {"requests": "requests", "socks": "PySocks", "pyfiglet": "pyfiglet", "rich": "rich"}
+    print(f"{C_BLUE}{EMOJI_INSTALL} Checking Python dependencies (selenium, requests, PySocks, pyfiglet, rich)...{C_END}")
+    # Ensure all necessary packages are listed here
+    required_modules = {
+        "selenium": "selenium", 
+        "requests": "requests", 
+        "socks": "PySocks", # For requests SOCKS proxy
+        "pyfiglet": "pyfiglet", 
+        "rich": "rich"
+    }
     missing_packages = []
     for module_name, package_name in required_modules.items():
-        if importlib.util.find_spec(module_name) is None:
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
             missing_packages.append(package_name)
+    
     if missing_packages:
         missing_packages_str = ", ".join(sorted(list(set(missing_packages))))
         print(f"\n{C_WARNING}{EMOJI_WARNING} Missing Python packages: {C_BOLD}{missing_packages_str}{C_END}")
-        print(f"{C_CYAN}{EMOJI_PROMPT} Installing dependencies from 'requirements.txt'...{C_END}")
+        
         req_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
         if not os.path.exists(req_file):
             print(f"{C_FAIL}{EMOJI_ERROR} {C_BOLD}CRITICAL: 'requirements.txt' not found!{C_END}")
-            print(f"{C_WARNING}   Cannot automatically install dependencies. Please ensure 'requirements.txt' exists and contains all needed packages.{C_END}")
+            print(f"{C_WARNING}   Cannot automatically install dependencies. Please create 'requirements.txt' with the following content or install manually:{C_END}")
+            # Print out the expected content of requirements.txt
+            print(f"{C_GRAY}--- requirements.txt ---{C_END}")
+            for pkg in ["selenium", "requests[socks]", "PySocks", "pyfiglet", "rich"]: # Ensure requests[socks] for full SOCKS support
+                print(f"{C_GRAY}{pkg}{C_END}")
+            print(f"{C_GRAY}------------------------{C_END}")
+            print(f"\n{C_YELLOW}{EMOJI_INFO} Manual Installation Guide:{C_END}")
+            print(f"{C_CYAN}  1. Create a requirements.txt file with the above content.{C_END}")
+            print(f"{C_CYAN}  2. Run: {C_BOLD}pip install -r requirements.txt{C_END}")
+            print(f"{C_CYAN}  3. Then re-run: {C_BOLD}python3 main.py{C_END}")
             sys.exit(1)
+
+        print(f"{C_CYAN}{EMOJI_PROMPT} Installing dependencies from '{req_file}'...{C_END}")
         stop_event = threading.Event()
-        spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Python dependencies...", stop_event), kwargs={"emoji": EMOJI_INSTALL, "color": C_CYAN})
+        spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Python dependencies from {req_file}...", stop_event), kwargs={"emoji": EMOJI_INSTALL, "color": C_CYAN})
         spinner_thread.start()
         try:
-            proc = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-input", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+            # Use --disable-pip-version-check for cleaner output, --no-input for non-interactive
+            proc = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "-r", req_file], 
+                                  capture_output=True, text=True, timeout=240) # Increased timeout
             stop_event.set()
             spinner_thread.join()
             if proc.returncode == 0:
-                print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All Python dependencies installed successfully!{C_END}\n")
+                print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All Python dependencies from requirements.txt installed successfully!{C_END}\n")
+                # Verify again
+                all_installed_now = True
+                for module_name in required_modules.keys():
+                    try:
+                        importlib.import_module(module_name)
+                    except ImportError:
+                        print(f"{C_FAIL}{EMOJI_ERROR} Package {module_name} still not importable after pip install. Please check pip output and install manually if needed.{C_END}")
+                        all_installed_now = False
+                if not all_installed_now: sys.exit(1)
+
             else:
                 print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to install Python dependencies!{C_END}")
-                print(proc.stderr.decode(errors='ignore'))
+                print(f"{C_GRAY}Pip stdout:\n{proc.stdout}{C_END}")
+                print(f"{C_GRAY}Pip stderr:\n{proc.stderr}{C_END}")
+                print(f"\n{C_YELLOW}{EMOJI_INFO} Manual Installation Guide:{C_END}")
+                print(f"{C_CYAN}  1. Ensure you are in your virtual environment (activate it if not).{C_END}")
+                print(f"{C_CYAN}  2. Run: {C_BOLD}pip install -r requirements.txt{C_END}")
+                print(f"{C_CYAN}  3. If you see errors, try installing missing packages individually, e.g.:{C_END}")
+                for pkg in missing_packages:
+                    print(f"{C_CYAN}     {C_BOLD}pip install {pkg}{C_END}")
+                print(f"{C_CYAN}  4. Then re-run: {C_BOLD}python3 main.py{C_END}")
                 sys.exit(1)
         except subprocess.TimeoutExpired:
             stop_event.set()
             spinner_thread.join()
-            print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} pip install timed out!{C_END}")
+            print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} pip install timed out after 4 minutes! Check your internet connection or try installing manually.{C_END}")
+            print(f"\n{C_YELLOW}{EMOJI_INFO} Manual Installation Guide:{C_END}")
+            print(f"{C_CYAN}  1. Ensure you are in your virtual environment (activate it if not).{C_END}")
+            print(f"{C_CYAN}  2. Run: {C_BOLD}pip install -r requirements.txt{C_END}")
+            print(f"{C_CYAN}  3. If you see errors, try installing missing packages individually, e.g.:{C_END}")
+            for pkg in missing_packages:
+                print(f"{C_CYAN}     {C_BOLD}pip install {pkg}{C_END}")
+            print(f"{C_CYAN}  4. Then re-run: {C_BOLD}python3 main.py{C_END}")
             sys.exit(1)
         except Exception as e:
             stop_event.set()
             spinner_thread.join()
             print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Exception during dependency installation: {e}{C_END}")
+            print(f"\n{C_YELLOW}{EMOJI_INFO} Manual Installation Guide:{C_END}")
+            print(f"{C_CYAN}  1. Ensure you are in your virtual environment (activate it if not).{C_END}")
+            print(f"{C_CYAN}  2. Run: {C_BOLD}pip install -r requirements.txt{C_END}")
+            print(f"{C_CYAN}  3. If you see errors, try installing missing packages individually, e.g.:{C_END}")
+            for pkg in missing_packages:
+                print(f"{C_CYAN}     {C_BOLD}pip install {pkg}{C_END}")
+            print(f"{C_CYAN}  4. Then re-run: {C_BOLD}python3 main.py{C_END}")
             sys.exit(1)
-        print(f"\n{C_CYAN}{EMOJI_INFO} Dependency installation step finished.{C_END}\n")
     else:
         print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All required Python dependencies are already installed!{C_END}\n")
 
 def is_command_available(command):
     return shutil.which(command) is not None
 
-def ensure_tor_installed():
-    print(f"\n{C_BLUE}{EMOJI_TOR} Checking Tor installation...{C_END}")
+def ensure_tor_installed(): # This now focuses on making 'tor' command available
+    print(f"\n{C_BLUE}{EMOJI_TOR} Checking Tor installation ('tor' command availability)...{C_END}")
     if not is_command_available("tor"):
-        print(f"\n{C_WARNING}{EMOJI_WARNING} Tor command not found. Installing Tor (requires sudo privileges)...{C_END}")
+        print(f"{C_WARNING}{EMOJI_WARNING} 'tor' command not found. Attempting to install Tor (may require sudo privileges)...{C_END}")
         installer = None
-        install_cmd = None
-        install_cmd2 = None
-        if is_command_available("apt"):
-            installer = "apt"
-            install_cmd = ["sudo", "apt", "update", "-y", "-qq"]
-            install_cmd2 = ["sudo", "apt", "install", "tor", "-y", "-qq"]
+        install_cmd_update = None
+        install_cmd_tor = None
+        
+        # Determine package manager and commands
+        if is_command_available("apt-get"): # Prefer apt-get for non-interactive
+            installer = "apt-get"
+            install_cmd_update = ["sudo", "apt-get", "update", "-y", "-qq"]
+            install_cmd_tor = ["sudo", "apt-get", "install", "tor", "-y", "-qq"]
         elif is_command_available("yum"):
             installer = "yum"
-            install_cmd = ["sudo", "yum", "install", "tor", "-y", "-q"]
-        elif is_command_available("pacman"):
+            # yum update can be slow, often not strictly needed just to install one package if repo list is fresh
+            # install_cmd_update = ["sudo", "yum", "check-update"] # Optional check
+            install_cmd_tor = ["sudo", "yum", "install", "-y", "-q", "tor"]
+        elif is_command_available("dnf"): # Fedora
+            installer = "dnf"
+            install_cmd_tor = ["sudo", "dnf", "install", "-y", "--quiet", "tor"]
+        elif is_command_available("pacman"): # Arch
             installer = "pacman"
-            install_cmd = ["sudo", "pacman", "-S", "--noconfirm", "--quiet", "tor"]
-        
+            # Pacman usually syncs db with -S. --noconfirm for non-interactive
+            install_cmd_tor = ["sudo", "pacman", "-S", "--noconfirm", "--quiet", "tor"]
+        # Add more package managers if needed (zypper for openSUSE, etc.)
+
         if installer:
-            print(f"\n{C_CYAN}{EMOJI_PROMPT} Installing Tor using '{installer}'...{C_END}")
+            print(f"{C_CYAN}{EMOJI_PROMPT} Using '{installer}' to install Tor...{C_END}")
             stop_event = threading.Event()
             spinner_thread = threading.Thread(target=spinner_animation, args=(f"Installing Tor with {installer}...", stop_event), kwargs={"emoji": EMOJI_TOR, "color": C_CYAN})
             spinner_thread.start()
+            
             success = False
-            tor_install_error_output = ""
+            error_output = ""
+
             try:
-                if installer == "apt":
-                    # For apt, run update then install
-                    proc1 = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
-                    tor_install_error_output += proc1.stderr.decode(errors='ignore') if proc1.stderr else ""
-                    if proc1.returncode == 0:
-                        proc2 = subprocess.run(install_cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
-                        tor_install_error_output += "\n" + proc2.stderr.decode(errors='ignore') if proc2.stderr else ""
-                        success = proc2.returncode == 0
+                if install_cmd_update: # For apt-get, run update first
+                    proc_update = subprocess.run(install_cmd_update, capture_output=True, stderr=subprocess.PIPE, text=True, timeout=300)
+                    if proc_update.returncode != 0:
+                        error_output += f"Update failed with {installer}: {proc_update.stderr}\\n"
+                    else: # Update successful, proceed to install Tor
+                        proc_tor = subprocess.run(install_cmd_tor, capture_output=True, stderr=subprocess.PIPE, text=True, timeout=300)
+                        if proc_tor.returncode == 0:
+                            success = True
+                        else:
+                            error_output += f"Tor install failed with {installer}: {proc_tor.stderr}\\n"
+                else: # For yum, dnf, pacman - direct install
+                    proc_tor = subprocess.run(install_cmd_tor, capture_output=True, stderr=subprocess.PIPE, text=True, timeout=300)
+                    if proc_tor.returncode == 0:
+                        success = True
                     else:
-                        success = False # Update failed
-                else:
-                    # For yum/pacman, single install command
-                    proc = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
-                    tor_install_error_output += proc.stderr.decode(errors='ignore') if proc.stderr else ""
-                    success = proc.returncode == 0
+                        error_output += f"Tor install failed with {installer}: {proc_tor.stderr}\\n"
             except subprocess.TimeoutExpired:
-                tor_install_error_output = "Tor installation process timed out after 5 minutes."
+                error_output = f"Tor installation with {installer} timed out after 5 minutes."
                 success = False
             except Exception as e:
-                tor_install_error_output = f"Exception during Tor installation: {str(e)}"
+                error_output = f"Exception during Tor installation with {installer}: {str(e)}"
                 success = False
             finally:
                 stop_event.set()
                 spinner_thread.join()
 
             if success and is_command_available("tor"):
-                print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor installed successfully using {installer}!{C_END}\n")
+                print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor command installed successfully using {installer}!{C_END}\n")
             else:
-                print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to install Tor using {installer}!{C_END}")
-                if tor_install_error_output.strip():
-                    print(f"{C_GRAY}Error details:\\n{tor_install_error_output.strip()}{C_END}")
-                print(f"{C_WARNING}{EMOJI_INFO} Please try installing Tor manually for your system and then re-run this script.{C_END}")
+                print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to install 'tor' command using {installer}.{C_END}")
+                if error_output.strip():
+                    print(f"{C_GRAY}Error details:\n{error_output.strip()}{C_END}")
+                print(f"{C_WARNING}{EMOJI_INFO} Please try installing Tor manually for your system (e.g., 'sudo {installer} install tor') and ensure the 'tor' command is in your PATH, then re-run this script.{C_END}")
+                print(f"{C_CYAN}{EMOJI_INFO} Download Tor from: https://www.torproject.org/download/{C_END}")
+                # Manual install instructions only, no QR code logic
+                try:
+                    import webbrowser
+                    webbrowser.open("https://www.torproject.org/download/")
+                except Exception:
+                    pass
                 sys.exit(1)
-            print(f"\n{C_CYAN}{EMOJI_INFO} Tor installation step finished.{C_END}\n")
         else:
-            print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Could not detect a supported package manager (apt, yum, pacman) to install Tor.{C_END}")
-            print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually for your Linux distribution and re-run the script.{C_END}")
+            print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Could not detect a supported package manager (apt-get, yum, dnf, pacman) to install Tor.{C_END}")
+            print(f"{C_WARNING}{EMOJI_INFO} Please install Tor manually for your system so that the 'tor' command is available in your PATH, then re-run the script.{C_END}")
+            print(f"{C_CYAN}{EMOJI_INFO} Download Tor from: https://www.torproject.org/download/{C_END}")
+            # Manual install instructions only, no QR code logic
+            try:
+                import webbrowser
+                webbrowser.open("https://www.torproject.org/download/")
+            except Exception:
+                pass
             sys.exit(1)
     else:
-        print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor is already installed!{C_END}\n")
+        print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} 'tor' command is already available!{C_END}\n")
 
-def is_tor_service_running():
-    """Checks if the Tor process is running, primarily using pgrep.
-    Returns:
-        bool: True if Tor process is found, False otherwise.
-    """
+# ensure_tor_service_running() is no longer strictly needed as main.py now prioritizes
+# pytor.detect_tor_ports() and pytor.start_tor_instance().
+# If pytor is not available, the script will exit.
+# If no ports are found and new instances cannot be started, it will also exit.
+# So, this function can be simplified or removed if not used by other parts.
+# For now, keeping a simplified version that checks for any running Tor process via pgrep.
+def check_if_any_tor_process_running():
+    """Checks if any 'tor' process is running using pgrep."""
+    if not is_command_available("pgrep"):
+        # print(f"{C_GRAY}  pgrep command not found, cannot check for existing Tor processes this way.{C_END}")
+        return False # Cannot determine
     try:
-        # pgrep is the most reliable cross-platform way to check for a running process
-        # if systemctl/service are not available or misbehaving.
-        pgrep_proc = subprocess.run(["pgrep", "-x", "tor"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        pgrep_proc = subprocess.run(["pgrep", "-x", "tor"], capture_output=True, text=True)
         if pgrep_proc.returncode == 0 and pgrep_proc.stdout.strip():
-            return True # Tor process found by pgrep
-
-        # Fallback: Check systemctl if pgrep didn't find it (less likely to be accurate if pgrep failed)
-        if is_command_available("systemctl"):
-            systemctl_proc = subprocess.run(["systemctl", "is-active", "--quiet", "tor"], timeout=5)
-            if systemctl_proc.returncode == 0:
-                return True # Tor service active according to systemctl
-        return False
-    except (subprocess.TimeoutExpired, FileNotFoundError): # FileNotFoundError if pgrep/systemctl not found
-        return False
-    except Exception as e:
-        # print(f"{C_GRAY}Debug: Exception in is_tor_service_running: {e}{C_END}") # Optional debug
-        return False
-
-def ensure_tor_service_running():
-    print(f"\n{C_BLUE}{EMOJI_TOR} Checking Tor service status...{C_END}")
-
-    if is_tor_service_running():
-        print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor service is already running! (Verified by pgrep){C_END}\n")
-        return
-
-    print(f"\n{C_WARNING}{EMOJI_WARNING} Tor service is not running. Attempting to start Tor service (requires sudo privileges)...{C_END}")
-    
-    stop_event = threading.Event()
-    spinner_thread = threading.Thread(target=spinner_animation, args=(f"Attempting to start Tor service...", stop_event), kwargs={"emoji": EMOJI_TOR, "color": C_CYAN})
-    spinner_thread.start()
-
-    service_start_methods_attempted = False
-    systemctl_failed_non_systemd = False
-    service_cmd_failed_non_systemd = False
-    service_start_errors = []
-
-    # Attempt 1: systemctl
-    if is_command_available("systemctl"):
-        service_start_methods_attempted = True
-        try:
-            # print(f"{C_GRAY}  Trying: sudo systemctl start tor.service{C_END}") # Debug
-            proc_systemctl = subprocess.run(["sudo", "systemctl", "start", "tor.service"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
-            stderr_output = proc_systemctl.stderr.decode(errors='ignore').strip()
-            if proc_systemctl.returncode != 0:
-                service_start_errors.append(f"systemctl: {stderr_output}")
-                if "systemd" in stderr_output and ("PID 1" in stderr_output or "Host is down" in stderr_output or "bus" in stderr_output):
-                    systemctl_failed_non_systemd = True
-                    # print(f"{C_GRAY}  systemctl: Detected non-systemd environment or bus error.{C_END}") # Debug
-            time.sleep(3) # Give service time to start
-            if is_tor_service_running(): # Check immediately if it started
-                stop_event.set()
-                spinner_thread.join()
-                print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor service started successfully using systemctl! (Verified by pgrep){C_END}\n")
-                print(f"\n{C_CYAN}{EMOJI_INFO} Tor service start step finished.{C_END}\n")
-                return
-        except subprocess.TimeoutExpired:
-            service_start_errors.append("systemctl: Timeout during start attempt.")
-            # print(f"{C_GRAY}  systemctl: Start attempt timed out.{C_END}") # Debug
-        except Exception as e:
-            service_start_errors.append(f"systemctl: Exception - {str(e)}")
-            # print(f"{C_GRAY}  systemctl: Exception {e}{C_END}") # Debug
-
-    # Attempt 2: service command (if systemctl failed or wasn't applicable)
-    if not is_tor_service_running() and is_command_available("service"):
-        service_start_methods_attempted = True
-        try:
-            # print(f"{C_GRAY}  Trying: sudo service tor start{C_END}") # Debug
-            proc_service = subprocess.run(["sudo", "service", "tor", "start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
-            stderr_output = proc_service.stderr.decode(errors='ignore').strip()
-            if proc_service.returncode != 0:
-                service_start_errors.append(f"service cmd: {stderr_output}")
-                if "systemd" in stderr_output and ("PID 1" in stderr_output or "Host is down" in stderr_output or "bus" in stderr_output):
-                    service_cmd_failed_non_systemd = True
-                    # print(f"{C_GRAY}  service: Detected non-systemd environment or bus error.{C_END}") # Debug
-
-            time.sleep(3)
-            if is_tor_service_running():
-                stop_event.set()
-                spinner_thread.join()
-                print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor service started successfully using 'service' command! (Verified by pgrep){C_END}\n")
-                print(f"\n{C_CYAN}{EMOJI_INFO} Tor service start step finished.{C_END}\n")
-                return
-        except subprocess.TimeoutExpired:
-            service_start_errors.append("service cmd: Timeout during start attempt.")
-            # print(f"{C_GRAY}  service: Start attempt timed out.{C_END}") # Debug
-        except Exception as e:
-            service_start_errors.append(f"service cmd: Exception - {str(e)}")
-            # print(f"{C_GRAY}  service: Exception {e}{C_END}") # Debug
-            
-    # Attempt 3: Direct tor command execution as a fallback (if systemd/service methods failed or are unsuitable)
-    # This is more of a last resort and might not behave like a proper service.
-    if not is_tor_service_running():
-        service_start_methods_attempted = True # Considered an attempt
-        if systemctl_failed_non_systemd or service_cmd_failed_non_systemd:
-            print(f"{C_CYAN}{EMOJI_INFO} systemctl/service commands seem unsuitable for this environment. Attempting direct Tor execution (less ideal).{C_END}")
-        elif not is_command_available("systemctl") and not is_command_available("service"):
-             print(f"{C_CYAN}{EMOJI_INFO} systemctl and service commands not found. Attempting direct Tor execution (less ideal).{C_END}")
-        
-        try:
-            # print(f"{C_GRAY}  Trying: sudo tor --run-as-daemon 1 (or similar based on OS){C_END}") # Debug
-            # Note: Starting Tor directly like this is tricky. It might need --daemonize or specific config.
-            # For now, we'll assume if `tor` command exists, a simple `sudo tor` might work in some contexts,
-            # or that `pytor.start_tor()` from a later step might be more robust for this.
-            # This specific attempt here is kept minimal. The check after will use pgrep.
-            # We won't run `sudo tor` directly here as it can behave unexpectedly without proper config.
-            # Instead, we rely on `pytor.start_tor()` which is called by `install_requirements_and_tor()`
-            # which should have run before this.
-            # The purpose here is to check again with pgrep after systemctl/service failures.
-            pass # No direct command here, will rely on pgrep after this.
-
-        except Exception as e:
-            service_start_errors.append(f"Direct tor: Exception - {str(e)}")
-
-
-    stop_event.set()
-    spinner_thread.join()
-
-    # Final check after all attempts
-    if is_tor_service_running():
-        print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} Tor process is running! (Verified by pgrep after start attempts){C_END}\n")
-    else:
-        print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} Failed to start or verify Tor service after all attempts.{C_END}")
-        if systemctl_failed_non_systemd:
-            print(f"{C_CYAN}{EMOJI_INFO} Systemd (systemctl) is not available or not the init system. Standard service start failed.{C_END}")
-        if service_cmd_failed_non_systemd:
-            print(f"{C_CYAN}{EMOJI_INFO} 'service' command indicated an issue (possibly non-systemd environment). Standard service start failed.{C_END}")
-        
-        if not service_start_methods_attempted:
-             print(f"{C_WARNING}{EMOJI_INFO} No suitable system service management commands (systemctl, service) were found or Tor is already installed but not running.{C_END}")
-
-        if service_start_errors:
-            print(f"{C_GRAY}Errors encountered during start attempts:{C_END}")
-            for err in service_start_errors:
-                print(f"{C_GRAY}  - {err}{C_END}")
-        
-        print(f"{C_WARNING}{EMOJI_INFO} Please ensure Tor is installed correctly and can be started manually on your system.{C_END}")
-        print(f"{C_WARNING}  You might need to run: {C_BOLD}sudo tor{C_END}{C_WARNING} or check your system's Tor service logs.{C_END}")
-        # Do not sys.exit(1) here, allow the main script to proceed to pytor.start_tor() if it's part of the setup.
-        # The show_tor_status function later will be the final gatekeeper.
-
-    print(f"\n{C_CYAN}{EMOJI_INFO} Tor service start step finished.{C_END}\n")
-
-# --- EXECUTE PRIORITIZED SETUP CHECKS ---
-# This section is executed when the script is loaded, before main() is explicitly called.
-require_venv_or_exit() # Step 1: Must be in VENV
-
-# Step 2: Check for root/sudo if potentially needed by subsequent steps 
-# (e.g., Tor installation or starting system services).
-# The check_root() function itself will print messages and exit if criteria are not met.
-check_root() 
-
-check_and_install_python_dependencies() # Step 3: Install Python packages (inside venv)
-ensure_tor_installed() # Step 4: Install Tor (system-wide, may require sudo)
-ensure_tor_service_running() # Step 5: Start Tor service (may require sudo)
-
-# Banner will be printed from main() after these checks.
-
-# Print completion message for setup checks
-print(f"\n{C_GREEN}{EMOJI_ROCKET}{C_BOLD}{EMOJI_CELEBRATE} All pre-flight system checks passed! KADDU YT-VIEWS is ready to configure...{C_END}\n")
-
-# --------------------------------------
-# --- MAIN APPLICATION IMPORTS START HERE ---
-import random
-import requests
-from urllib.parse import urlparse
-import threading as th2
-import signal
-import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import pyfiglet
-from rich.console import Console
-from rich.live import Live
-from rich.text import Text
-import pytor
-# --- MAIN APPLICATION IMPORTS END HERE ---
-
-
-# -----------------------------
-# Color, Emoji, Banner, Spinner, and Utility Helpers
-# -----------------------------
-# The Colors class and EMOJIS dictionary previously here are now removed.
-# All color and emoji references now use the global C_ and EMOJI_ constants defined at the top.
-
-# Updated: 50+ real user agent strings (2024-2025, desktop, mobile, tablet, major browsers)
-USER_AGENTS = [
-    # Windows Chrome
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    # Windows Firefox
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
-    # Windows Edge
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0",
-    # Windows Opera
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 OPR/118.0.0.0",
-    # Mac Chrome
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    # Mac Safari
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.10 Safari/605.1.1",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
-    # Mac Firefox
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:136.0) Gecko/20100101 Firefox/136.0",
-    # Mac Edge
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.3124.85",
-    # Mac Opera
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 OPR/118.0.0.0",
-    # Linux Chrome
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-    # Linux Firefox
-    "Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0",
-    # Chromebook
-    "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-    # Android Chrome
-    "Mozilla/5.0 (Linux; Android 15; SM-S931B Build/AP3A.240905.015.A2; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 14; Pixel 9 Pro Build/AD1A.240418.003; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.54 Mobile Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 14; Pixel 9 Build/AD1A.240411.003.A5; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.54 Mobile Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 15; Pixel 8 Pro Build/AP4A.250105.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/132.0.6834.163 Mobile Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 15; Pixel 8 Build/AP4A.250105.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/132.0.6834.163 Mobile Safari/537.36",
-    # Android Firefox
-    "Mozilla/5.0 (Android 15; Mobile; rv:136.0) Gecko/136.0 Firefox/136.0",
-    # Android Samsung
-    "Mozilla/5.0 (Linux; Android 15; SM-S931U Build/AP3A.240905.015.A2; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/132.0.6834.163 Mobile Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 14; SM-F9560 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
-    # Android Opera
-    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36 OPR/89.0.0.0",
-    # iPhone Safari
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.7 Mobile/15E148 Safari/604.1",
-    # iPhone Chrome
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/134.0.6998.99 Mobile/15E148 Safari/604.1",
-    # iPhone Edge
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/136.0.3240.91 Version/18.0 Mobile/15E148 Safari/604.1",
-    # iPhone Firefox
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/136.0 Mobile/15E148 Safari/605.1.15",
-    # iPad Safari
-    "Mozilla/5.0 (iPad; CPU OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1",
-    # iPad Chrome
-    "Mozilla/5.0 (iPad; CPU OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/134.0.6998.99 Mobile/15E148 Safari/604.1",
-    # iPad Edge
-    "Mozilla/5.0 (iPad; CPU OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/134.0.3124.85 Version/18.0 Mobile/15E148 Safari/604.1",
-    # iPad Firefox
-    "Mozilla/5.0 (iPad; CPU OS 14_7_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/136.0 Mobile/15E148 Safari/605.1.15",
-    # Tablet Android
-    "Mozilla/5.0 (Linux; Android 14; SM-X306B Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 14; SM-P619N Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/127.0.6533.103 Mobile Safari/537.36",
-    # Kindle
-    "Mozilla/5.0 (Linux; Android 11; KFRASWI Build/RS8332.3115N) AppleWebKit/537.36 (KHTML, like Gecko) Silk/47.1.79 like Chrome/47.0.2526.80 Safari/537.36",
-    # Smart TV
-    "Mozilla/5.0 (Linux; Android 11; AFTKRT Build/RS8101.1849N; wv)PlexTV/10.0.0.4149",
-    # Game Console
-    "Mozilla/5.0 (PlayStation; PlayStation 5/2.26) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox Series X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.82 Safari/537.36 Edge/20.02",
-    # Bots (for completeness, but not used for normal views)
-    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-    "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
-]
-
-def print_animated_banner():
-    """
-    Prints a big, bold ASCII banner with animation using pyfiglet and rich.
-    """
-    console = Console()
-    banner_text = pyfiglet.figlet_format("KADDU YT-VIEWS", font="slant")
-    # Animate the banner by printing it line by line with a delay
-    lines = banner_text.splitlines()
-    with Live("", refresh_per_second=20, console=console) as live:
-        display = ""
-        for line in lines:
-            display += f"[bold magenta]{line}[/bold magenta]\n"
-            live.update(Text(display))
-            time.sleep(0.07)
-    # Add subtitle and info
-    console.print("[bold cyan]🎃 YT-Views - Simulating YouTube Views Like a Pro! 🎃[/bold cyan]")
-    console.print("[bold green]Powered by PyTor & Smart Automation[/bold green]")
-    console.print("[bold yellow]GitHub: https://github.com/Kaddu-Hacker/InfiniteYtViews[/bold yellow]")
-    console.print("[bold blue]Tip: Always run in a virtual environment![/bold blue]")
-    console.print("[bold white]-------------------------------------------------------------[/bold white]")
-
-# Simple spinner for waiting periods
-def spinner(seconds, message):
-    """
-    Displays a simple CLI spinner for a specified duration.
-    Args:
-        seconds (int): Duration to spin.
-        message (str): Message to display alongside the spinner.
-    """
-    spinner_chars = ['|', '/', '-', '\\\\']
-    end_time = time.time() + seconds
-    idx = 0
-    while time.time() < end_time:
-        print(f"\r{C_WARNING}{EMOJI_SPINNER} {message} {spinner_chars[idx % 4]}{C_END}", end='', flush=True) # MODIFIED: Used C_WARNING, EMOJI_SPINNER, C_END
-        time.sleep(0.2)
-        idx += 1
-    print("\\r" + " " * (len(message) + 5) + "\\r", end='') # Clear line
-
-# Random user-agent
-def get_random_user_agent():
-    """Returns a randomly selected User-Agent string."""
-    return random.choice(USER_AGENTS)
-
-# Randomized watch time
-def get_random_watch_time(base_length, is_short=False):
-    """
-    Calculates a randomized watch time.
-    For shorts, it's a fixed short duration (e.g., 15-55s).
-    For videos, it's a percentage of the base_length (e.g., 90-110%).
-    """
-    if is_short:
-        return random.randint(min(15, base_length), min(base_length, 55)) 
-    else:
-        return int(base_length * random.uniform(0.9, 1.1))
-
-# Randomized start delay (1-5s)
-def get_random_start_delay():
-    """Returns a random delay between 1 and 5 seconds."""
-    return random.randint(1, 5)
-
-# Validate a link (HEAD request via Tor)
-def validate_link(link, tor_port):
-    """
-    Validates a given URL by making a HEAD request through a specific Tor port.
-    Args:
-        link (str): The URL to validate.
-        tor_port (int): The SOCKS5 proxy port for Tor.
-    Returns:
-        bool: True if the link is valid (status code < 400), False otherwise.
-    """
-    proxies = {"http": f"socks5h://127.0.0.1:{tor_port}", "https": f"socks5h://127.0.0.1:{tor_port}"}
-    try:
-        headers = {"User-Agent": get_random_user_agent()}
-        response = requests.head(link, proxies=proxies, headers=headers, timeout=15, allow_redirects=True)
-        return response.status_code < 400
-    except requests.exceptions.RequestException as e:
-        # print(f"{C_WARNING}{EMOJI_ERROR} Link validation error for {link} on port {tor_port}: {e}{C_END}") # MODIFIED
-        return False
-
-# Simulate a view (with random user-agent and tor port)
-def simulate_view(link, tor_port, watch_time):
-    """
-    Simulates a single view to a link through a specified Tor port for a given watch time.
-    Args:
-        link (str): The URL to view.
-        tor_port (int): The SOCKS5 proxy port for Tor.
-        watch_time (int): The duration to simulate watching the content.
-    Returns:
-        bool: True if the view simulation was successful (status code < 400), False otherwise.
-    """
-    proxies = {"http": f"socks5h://127.0.0.1:{tor_port}", "https": f"socks5h://127.0.0.1:{tor_port}"}
-    headers = {"User-Agent": get_random_user_agent()}
-    try:
-        response = requests.get(link, headers=headers, proxies=proxies, timeout=20, stream=True)
-        if response.status_code < 400:
-            time.sleep(watch_time) 
-            response.close() 
+            # print(f"{C_GREEN}  Found existing Tor process(es) with pgrep: {pgrep_proc.stdout.strip()}{C_END}")
             return True
-        response.close()
-        return False
-    except requests.exceptions.RequestException as e:
-        # print(f"{C_WARNING}{EMOJI_ERROR} View simulation error for {link} on port {tor_port}: {e}{C_END}") # MODIFIED
-        return False
+    except Exception: # FileNotFoundError if pgrep/systemctl not found
+        # print(f"{C_GRAY}Debug: Exception in is_tor_service_running: {e}{C_END}") # Optional debug
+        pass
+    # print(f"{C_GRAY}  No existing 'tor' process found by pgrep.{C_END}")
+    return False
 
+# --- USER INPUT FUNCTIONS (Implemented) ---
 def get_user_links():
-    """
-    Prompts the user for link details (URL, type, length) with an improved workflow.
-    First asks for the type of content (videos, shorts, or mixed).
-    Then, for each batch of a specific type, it can ask for a default length.
-    Returns a list of link dictionaries.
-    """
-    print(f"\n{C_HEADER}{EMOJI_LINK} Let's add your content! {EMOJI_LINK}{C_END}") # MODIFIED
+    print(f"\n{C_BLUE}{EMOJI_PROMPT} {C_BOLD}Enter YouTube Video Links{C_END}")
+    print(f"{C_CYAN}  Please enter the full YouTube video URLs one by one. Type 'done' when finished, or 'quit' to exit.{C_END}")
     links = []
-    link_id_counter = 0
-
     while True:
-        print(f"{C_CYAN}What kind of content do you want to add?{C_END}") # MODIFIED
-        print(f"  1. Only YouTube Videos {EMOJI_VIDEO}") # MODIFIED
-        print(f"  2. Only YouTube Shorts {EMOJI_SHORT}") # MODIFIED
-        print(f"  3. Both Videos and Shorts (Mixed)")
-        content_choice_str = input(f"{C_CYAN}{EMOJI_PROMPT} Enter your choice (1-3) [Press Enter for 1]: {C_END}").strip() # MODIFIED
-        if content_choice_str.lower() == 'help':
-            print(HELP_TEXT) # Assuming HELP_TEXT is defined elsewhere
-            continue
-        
-        content_choice = '1' # Default to Videos
-        if content_choice_str in ['1', '2', '3']:
-            content_choice = content_choice_str
-        elif not content_choice_str: # Enter for default
-            pass # Keeps default '1'
-        else:
-            print(f"{C_WARNING}{EMOJI_ERROR} Invalid choice. Please enter 1, 2, or 3.{C_END}") # MODIFIED
-            continue
-        break
-
-    content_types_to_add = []
-    if content_choice == '1':
-        content_types_to_add.append(('video', EMOJI_VIDEO)) # MODIFIED
-    elif content_choice == '2':
-        content_types_to_add.append(('short', EMOJI_SHORT)) # MODIFIED
-    elif content_choice == '3':
-        content_types_to_add.append(('video', EMOJI_VIDEO)) # MODIFIED
-        content_types_to_add.append(('short', EMOJI_SHORT)) # MODIFIED
-
-    for content_type, content_emoji in content_types_to_add:
-        print(f"\n{C_HEADER}--- Adding {content_type.capitalize()}s {content_emoji} ---{C_END}") # MODIFIED
-        
-        while True:
-            try:
-                num_items_str = input(f"{C_CYAN}{EMOJI_PROMPT} How many {content_type}s? (Enter a number, 0 to skip): {C_END}").strip() # MODIFIED
-                if num_items_str.lower() == 'help':
-                    print(HELP_TEXT)
-                    continue
-                num_items = int(num_items_str) if num_items_str else 0
-                if num_items < 0:
-                    print(f"{C_WARNING}{EMOJI_ERROR} Please enter a non-negative number.{C_END}") # MODIFIED
-                    continue
-                if num_items == 0:
-                    print(f"{C_BLUE}Skipping {content_type}s.{C_END}") # MODIFIED
-                    break 
-                break
-            except ValueError:
-                print(f"{C_WARNING}{EMOJI_ERROR} Invalid input. Please enter a number.{C_END}") # MODIFIED
-        if num_items == 0: continue
-
-        # Ask for a default length for this batch of content_type
-        default_length_for_batch = None
-        min_length = 10 if content_type == 'short' else 60
-        suggested_length = 60 if content_type == 'short' else 300
-
-        while True:
-            use_default_len_str = input(f"  {EMOJI_PROMPT} Set a default length for these {num_items} {content_type}s? (yes/no) [Enter for no]: {C_END}").strip().lower() # MODIFIED
-            if use_default_len_str == 'help': print(HELP_TEXT); continue
-            if use_default_len_str in ['y', 'yes']:
-                while True:
-                    length_str = input(f"    {EMOJI_PROMPT} Enter default length for {content_type}s in seconds [Enter for {suggested_length}s]: {C_END}").strip() # MODIFIED
-                    if length_str.lower() == 'help': print(HELP_TEXT); continue
-                    try:
-                        default_length_for_batch = int(length_str) if length_str else suggested_length
-                        if default_length_for_batch < min_length:
-                            print(f"{C_WARNING}{EMOJI_ERROR} Min length for {content_type} is {min_length}s.{C_END}") # MODIFIED
-                            default_length_for_batch = None # Reset
-                            continue
-                        break
-                    except ValueError:
-                        print(f"{C_WARNING}{EMOJI_ERROR} Invalid number for length.{C_END}") # MODIFIED
-                break
-            elif use_default_len_str in ['n', 'no', '']:
-                break
+        link = input(f"{C_YELLOW}  {EMOJI_LINK} URL (or 'done'/'quit'): {C_END}").strip()
+        if link.lower() == 'done':
+            if not links:
+                print(f"{C_WARNING}{EMOJI_WARNING} No links entered. Please provide at least one link or type 'quit'.{C_END}")
             else:
-                print(f"{C_WARNING}{EMOJI_ERROR} Invalid choice. Please enter 'yes' or 'no'.{C_END}") # MODIFIED
-
-        for i in range(num_items):
-            print(f"\n{C_BLUE}--- {content_type.capitalize()} #{i+1} ---{C_END}") # MODIFIED
-            while True:
-                link_url = input(f"  {EMOJI_PROMPT} Enter URL for {content_type} #{i+1}: ").strip()
-                if link_url.lower() == 'help': print(HELP_TEXT); continue
-                if not link_url: print(f"{C_WARNING}{EMOJI_ERROR} URL cannot be empty.{C_END}"); continue # MODIFIED
-                if not (link_url.startswith("http://") or link_url.startswith("https://")):\
-                    print(f"{C_WARNING}{EMOJI_ERROR} Invalid URL. Must start with http:// or https://{C_END}"); continue # MODIFIED
                 break
-            
-            current_length_sec = default_length_for_batch
-            if current_length_sec is None: # If no batch default, ask individually
-                length_prompt = f"  {EMOJI_PROMPT} Enter {content_type} length in seconds [Enter for {suggested_length}s]: "
-                while True:
-                    length_str = input(length_prompt).strip()
-                    if length_str.lower() == 'help': print(HELP_TEXT); continue
-                    try:
-                        current_length_sec = int(length_str) if length_str else suggested_length
-                        if current_length_sec < min_length:
-                            print(f"{C_WARNING}{EMOJI_ERROR} Min length for {content_type} is {min_length}s.{C_END}"); continue # MODIFIED
-                        break
-                    except ValueError:
-                        print(f"{C_WARNING}{EMOJI_ERROR} Invalid input. Please enter a number for length.{C_END}") # MODIFIED
-            
-            links.append({'url': link_url, 'type': content_type, 'length': current_length_sec, 'id': link_id_counter})
-            link_id_counter += 1
-            
-    if not links:
-        print(f"{C_WARNING}{EMOJI_INFO} No content was added.{C_END}") # MODIFIED
+        elif link.lower() == 'quit':
+            print(f"{C_FAIL}{EMOJI_FAIL} User requested quit. Exiting script.{C_END}")
+            sys.exit(0)
+        elif ("youtube.com/" in link or "youtu.be/" in link) and ("http://" in link or "https://" in link) :
+            # Basic validation for YouTube link structure
+            if not re.match(r"^https?://(www\.)?(youtube\.com/(watch\?v=|shorts/|embed/)|youtu\.be/)[a-zA-Z0-9_\-]+.*", link):
+                print(f"{C_FAIL}{EMOJI_ERROR} Invalid YouTube URL format. Please use a full URL (e.g., https://www.youtube.com/watch?v=VIDEO_ID).{C_END}")
+                continue
+            links.append(link)
+            print(f"{C_GREEN}    {EMOJI_SUCCESS} Link added: {link[:60]}{'...' if len(link)>60 else ''}{C_END}")
+        else:
+            print(f"{C_FAIL}{EMOJI_ERROR} Invalid link. Please enter a valid YouTube URL (e.g., https://www.youtube.com/watch?v=...) or 'done'/'quit'.{C_END}")
+    if links:
+        print(f"\n{C_GREEN}{EMOJI_SUCCESS} {len(links)} link(s) collected successfully.{C_END}")
     return links
 
 def get_views_per_link():
-    """
-    Prompts user for number of views per link.
-    """
-    print(f"\n{C_HEADER}{EMOJI_VIEW} View Configuration {EMOJI_VIEW}{C_END}") # MODIFIED (used EMOJI_VIEW)
+    print(f"\n{C_BLUE}{EMOJI_PROMPT} {C_BOLD}Number of Views per Link{C_END}")
     while True:
-        views_str = input(f"{C_CYAN}{EMOJI_PROMPT} How many views per link? (e.g., 100) [Press Enter for 10, 0 for 'continuous']: {C_END}").strip() # MODIFIED
-        if views_str.lower() == 'help':
-            print(HELP_TEXT)
-            continue
         try:
-            views = int(views_str) if views_str else 10
-            if views < 0:
-                print(f"{C_WARNING}{EMOJI_ERROR} Please enter 0 or a positive number.{C_END}") # MODIFIED
-                continue
-            return views 
+            views_str = input(f"{C_YELLOW}  {EMOJI_VIEW} How many views per link? (e.g., 10, or type 'quit'): {C_END}").strip()
+            if views_str.lower() == 'quit':
+                print(f"{C_FAIL}{EMOJI_FAIL} User requested quit. Exiting script.{C_END}")
+                sys.exit(0) # Return None to indicate quit, main loop should handle
+            views = int(views_str)
+            if views > 0:
+                print(f"{C_GREEN}    {EMOJI_SUCCESS} Each link will be targeted for {views} views.{C_END}")
+                return views
+            else:
+                print(f"{C_FAIL}{EMOJI_ERROR} Please enter a positive number of views.{C_END}")
         except ValueError:
-            print(f"{C_WARNING}{EMOJI_ERROR} Invalid input. Please enter a number.{C_END}") # MODIFIED
+            print(f"{C_FAIL}{EMOJI_ERROR} Invalid input. Please enter a number.{C_END}")
 
 def get_connection_count():
-    """
-    Prompts user for number of parallel Tor connections.
-    """
-    print(f"\n{C_HEADER}{EMOJI_CONNECTING} Connection Setup {EMOJI_CONNECTING}{C_END}") # MODIFIED (used EMOJI_CONNECTING)
-    print(f"   (More connections can mean faster view generation but need Tor to be set up for multiple SOCKS ports if > 1)")
+    print(f"\n{C_BLUE}{EMOJI_PROMPT} {C_BOLD}Number of Parallel Connections{C_END}")
+    print(f"{C_CYAN}  This script will attempt to use this many Tor circuits simultaneously.{C_END}")
+    print(f"{C_CYAN}  It will try to detect existing Tor ports or start new user-space instances.{C_END}")
+    max_sensible_connections = 20 # Arbitrary limit to suggest to user, can be adjusted
     while True:
-        num_connections_str = input(f"{C_CYAN}{EMOJI_PROMPT} How many parallel connections (Tor circuits)? (1-10) [Press Enter for 1]: {C_END}").strip() # MODIFIED
-        if num_connections_str.lower() == 'help':
-            print(HELP_TEXT)
-            print(f"{C_BLUE}{EMOJI_INFO} Each connection uses a distinct Tor SOCKS port (e.g., 9050, 9051...). Ensure Tor is configured if using >1.{C_END}") # MODIFIED
-            continue
         try:
-            num_connections = int(num_connections_str) if num_connections_str else 1
-            if not 1 <= num_connections <= 10:
-                print(f"{C_WARNING}{EMOJI_ERROR} Please enter a number between 1 and 10.{C_END}") # MODIFIED
-                continue
-            return num_connections
+            num_str = input(f"{C_YELLOW}  {EMOJI_THREADS} How many parallel connections? (1-{max_sensible_connections}, or 'quit'): {C_END}").strip()
+            if num_str.lower() == 'quit':
+                print(f"{C_FAIL}{EMOJI_FAIL} User requested quit. Exiting script.{C_END}")
+                sys.exit(0) # Return None to indicate quit
+            num = int(num_str)
+            if 0 < num <= max_sensible_connections:
+                print(f"{C_GREEN}    {EMOJI_SUCCESS} Requesting {num} parallel connection(s). Actual may be lower based on available Tor ports.{C_END}")
+                return num
+            elif num > max_sensible_connections:
+                 print(f"{C_WARNING}{EMOJI_WARNING} Requesting more than {max_sensible_connections} connections may significantly tax your system and network, or overload Tor circuits.{C_END}")
+                 confirm_high = input(f"{C_YELLOW}  Are you sure you want to proceed with {num} connections? This is not generally recommended. (yes/no): {C_END}").strip().lower()
+                 if confirm_high in ['yes', 'y']:
+                    print(f"{C_GREEN}    {EMOJI_SUCCESS} Proceeding with {num} parallel connection(s) as requested.{C_END}")
+                    return num
+                 else:
+                    print(f"{C_CYAN}    Request for {num} connections cancelled by user. Please enter a new value.{C_END}") 
+            else: # num <= 0
+                print(f"{C_FAIL}{EMOJI_ERROR} Please enter a positive number of connections (1-{max_sensible_connections}).{C_END}")
         except ValueError:
-            print(f"{C_WARNING}{EMOJI_ERROR} Invalid input. Please enter a number.{C_END}") # MODIFIED
+            print(f"{C_FAIL}{EMOJI_ERROR} Invalid input. Please enter a number.{C_END}")
 
 def get_dry_run_choice():
-    """
-    Asks if user wants a dry run.
-    """
-    print(f"\n{C_HEADER}{EMOJI_DRY_RUN} Dry Run Option {EMOJI_DRY_RUN}{C_END}") # MODIFIED
+    print(f"\n{C_BLUE}{EMOJI_PROMPT} {C_BOLD}Dry Run Option{C_END}")
+    print(f"{C_CYAN}  A dry run will simulate the setup and estimate tasks without actual video views or prolonged Tor usage.{C_END}")
     while True:
-        choice = input(f"{C_CYAN}{EMOJI_PROMPT} Perform a 'dry run' first? (yes/no) [Press Enter for no]: {C_END}").strip().lower() # MODIFIED
-        if choice == 'help':
-            print(HELP_TEXT)
-            print(f"{C_BLUE}{EMOJI_INFO} Dry run simulates without actual views.{C_END}") # MODIFIED
-            continue
+        choice = input(f"{C_YELLOW}  {EMOJI_DRY_RUN} Perform a dry run? (yes/no, or 'quit'): {C_END}").strip().lower()
+        if choice.lower() == 'quit':
+            print(f"{C_FAIL}{EMOJI_FAIL} User requested quit. Exiting script.{C_END}")
+            sys.exit(0) # No return value needed as main will exit
         if choice in ['yes', 'y']:
+            print(f"{C_GREEN}    {EMOJI_SUCCESS} Dry run selected. No actual views will be generated.{C_END}")
             return True
-        if choice in ['no', 'n', '']:
+        elif choice in ['no', 'n']:
+            print(f"{C_GREEN}    {EMOJI_SUCCESS} Actual view generation selected. {C_BOLD}Videos will be watched via Tor.{C_END}")
             return False
-        print(f"{C_WARNING}{EMOJI_ERROR} Invalid choice. Please enter 'yes' or 'no'.{C_END}") # MODIFIED
+        else:
+            print(f"{C_FAIL}{EMOJI_ERROR} Invalid input. Please type 'yes' or 'no'.{C_END}")
 
-def validate_all_links(links, tor_ports):
+# --- VALIDATION AND PROCESSING FUNCTIONS (Implemented) ---
+def validate_link_with_tor(link_url, tor_port, link_title="N/A"):
     """
-    Validates all user-provided links using available Tor ports in a round-robin fashion.
-    Args:
-        links (list): List of link dictionaries.
-        tor_ports (list): List of available Tor SOCKS port numbers.
-    Returns:
-        list: A list of valid link dictionaries. Invalid links are reported and excluded.
+    Validates a single link by trying to access it via Tor using Selenium (minimal interaction).
+    Enhanced privacy options for non-detectability. Uses a short validation duration.
     """
-    print(f"\n{C_BLUE}{EMOJI_SEARCH} Validating links...{C_END}") # MODIFIED (used EMOJI_SEARCH)
-    valid_links = []
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+    options = FirefoxOptions()
+    options.add_argument("--headless")
+    options.set_preference("general.useragent.override", get_random_user_agent())
+    options.set_preference("network.proxy.type", 1)
+    options.set_preference("network.proxy.socks", "127.0.0.1")
+    options.set_preference("network.proxy.socks_port", int(tor_port))
+    options.set_preference("network.proxy.socks_remote_dns", True)
+    options.set_preference("media.volume_scale", "0.0")
+    # Enhanced privacy options
+    options.set_preference("media.peerconnection.enabled", False)
+    options.set_preference("geo.enabled", False)
+    options.set_preference("privacy.trackingprotection.enabled", True)
+    options.set_preference("privacy.trackingprotection.fingerprinting.enabled", True)
+    options.set_preference("privacy.trackingprotection.cryptomining.enabled", True)
+    options.set_preference("privacy.donottrackheader.enabled", True)
+    options.set_preference("network.cookie.cookieBehavior", 5)
+    options.set_preference("dom.webdriver.enabled", False)
+    options.set_preference("useAutomationExtension", False)
+    # options.set_preference("privacy.resistFingerprinting", True) # Can break sites
+    driver = None
+    validation_watch_duration = 10 # seconds, short for validation
+    try:
+        driver = webdriver.Firefox(options=options)
+        driver.set_page_load_timeout(60)
+        print(f"{C_GRAY}  Selenium: Navigating to {link_url} via Tor port {tor_port}...{C_END}")
+        driver.get(link_url)
+        print(f"{C_GRAY}  Selenium: Waiting for video element or YouTube page title...{C_END}")
+        WebDriverWait(driver, 20).until(
+             EC.any_of(
+                EC.presence_of_element_located((By.TAG_NAME, "video")),
+                EC.title_contains("YouTube") 
+            )
+        )
+        print(f"{C_GREEN}  Selenium: Page appears loaded (video or YT title found).{C_END}")
+        
+        # Handle cookie consent pop-ups (improved with more generic selectors)
+        consent_selectors = [
+            "//button[.//span[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept all')]]", # Covers "Accept all" in a span
+            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept all')]",
+            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'agree to all')]",
+            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'i agree')]",
+            "//button[@id='L2AGLb']", # Google's specific ID
+            "//div[@role='dialog']//button[contains(text(), 'Accept') or contains(text(), 'Agree') or contains(text(), 'Allow')]", # More generic
+            "form[action*='consent.youtube.com'] button" # Form based consent
+        ]
+        for i, selector in enumerate(consent_selectors):
+            try:
+                consent_button = WebDriverWait(driver, 3).until( # Short timeout for each attempt
+                    EC.element_to_be_clickable((By.XPATH if selector.startswith("//") else By.CSS_SELECTOR, selector))
+                )
+                print(f"{C_GRAY}  Selenium: Found potential consent button (selector #{i}). Clicking...{C_END}")
+                driver.execute_script("arguments[0].click();", consent_button) # JS click can be more robust
+                # consent_button.click()
+                print(f"{C_GREEN}  Selenium: Clicked consent button.{C_END}")
+                time.sleep(random.uniform(2, 4)) # Wait for pop-up to disappear/page to react
+                break 
+            except TimeoutException:
+                if i == len(consent_selectors) - 1:
+                    print(f"{C_GRAY}  Selenium: No generic consent pop-up button found or needed within timeout.{C_END}")
+            except Exception as e_consent:
+                print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Minor error trying to click consent button (Selector #{i}): {str(e_consent).splitlines()[0]}{C_END}")
+        
+        # Attempt to click the main play button on YouTube if video is not auto-playing
+        try:
+            video_element = driver.find_element(By.TAG_NAME, "video")
+            # Check if video is paused (JavaScript check)
+            # Note: This might not work perfectly due to YouTube's complex player states
+            is_paused = driver.execute_script("return arguments[0].paused;", video_element)
+
+            if is_paused:
+                print(f"{C_GRAY}  Selenium: Video detected as paused. Attempting to click play button...{C_END}")
+                play_button_selectors = [
+                    "button.ytp-large-play-button.ytp-button", # Main large play button
+                    "button[aria-label='Play (k)']",           # Play button with aria-label
+                    ".html5-main-video"                         # Clicking the video element itself
+                ]
+                play_button_clicked = False
+                for selector in play_button_selectors:
+                    try:
+                        play_button = WebDriverWait(driver, 5).until(
+                            EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                        )
+                        if play_button and play_button.is_displayed():
+                            # play_button.click()
+                            driver.execute_script("arguments[0].click();", play_button)
+                            print(f"{C_GREEN}  Selenium: Clicked video play button (selector: {selector}).{C_END}")
+                            play_button_clicked = True
+                            break
+                    except Exception: # Timeout or other error
+                        pass # Try next selector
+                if not play_button_clicked:
+                    print(f"{C_GRAY}  Selenium: Could not find/click a play button, or video started playing automatically.{C_END}")
+            else:
+                print(f"{C_GRAY}  Selenium: Video appears to be playing or autoplaying.{C_END}")
+
+        except TimeoutException:
+            print(f"{C_GRAY}  Selenium: Video play button not found or not clickable (might be autoplaying or structure changed).{C_END}")
+        except Exception as e_play:
+            print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Minor error interacting with play button: {str(e_play)[:100]}{C_END}")
+
+        # Simulate watch time with slight variation
+        actual_watch_duration = validation_watch_duration + random.uniform(-2, 2)
+        actual_watch_duration = max(5, int(actual_watch_duration))
+        print(f"{C_GRAY}  Selenium: Simulating watch time for ~{actual_watch_duration} seconds...{C_END}")
+        start_watch_time = time.time()
+        while time.time() - start_watch_time < actual_watch_duration:
+            if stop_event_global.is_set():
+                print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Watch time for '{link_title}' interrupted by stop signal.{C_END}")
+                return False, "Watch interrupted by stop signal"
+            time.sleep(1)
+        print(f"{C_GREEN}{EMOJI_SUCCESS} Selenium: Successfully simulated view for '{link_title}' for {actual_watch_duration}s.{C_END}")
+        return True, f"Watched for {actual_watch_duration}s"
+    except (TimeoutException, WebDriverException) as e:
+        error_msg = f"Selenium: Page load timeout or element not found for '{link_title}'. Port: {tor_port}. Error: {str(e).splitlines()[0]}"
+        print(f"{C_FAIL}{EMOJI_ERROR} {error_msg}{C_END}")
+        return False, error_msg
+    except Exception as e_gen:
+        error_msg = f"Selenium: An unexpected error occurred for '{link_title}'. Port: {tor_port}. Error: {type(e_gen).__name__} - {str(e_gen).splitlines()[0]}"
+        print(f"{C_FAIL}{EMOJI_ERROR} {error_msg}{C_END}")
+        return False, error_msg
+    finally:
+        if driver:
+            print(f"{C_GRAY}  Selenium: Closing browser for '{link_title}' (Port {tor_port})...{C_END}")
+            try:
+                driver.quit()
+            except Exception as e_quit:
+                print(f"{C_YELLOW}{EMOJI_WARNING} Selenium: Error during browser quit: {type(e_quit).__name__} - {str(e_quit).splitlines()[0]}{C_END}")
+
+def validate_all_links(links_data_list, tor_ports):
+    print(f"\n{C_BLUE}{EMOJI_SEARCH} {C_BOLD}Validating All Links via Tor...{C_END}")
+    if not links_data_list:
+        print(f"{C_WARNING}{EMOJI_WARNING} No links provided to validate.{C_END}")
+        return []
     if not tor_ports:
-        print(f"{C_FAIL}{EMOJI_ERROR} No Tor ports available for link validation. Check Tor setup.{C_END}") # MODIFIED
+        print(f"{C_FAIL}{EMOJI_ERROR} No Tor ports available for link validation. Cannot proceed.{C_END}")
         return []
 
-    for i, link_info in enumerate(links):
-        # Cycle through tor_ports for validation to distribute load and mimic multiple connections
-        port_to_use = tor_ports[i % len(tor_ports)] 
-        is_valid = validate_link(link_info['url'], port_to_use)
-        if is_valid:
-            print(f"{C_GREEN}{EMOJI_SUCCESS} Link #{link_info['id']+1} ({link_info['url'][:60]}...) is valid via port {port_to_use}.{C_END}") # MODIFIED
-            valid_links.append(link_info)
-        else:
-            print(f"{C_FAIL}{EMOJI_ERROR} Link #{link_info['id']+1} ({link_info['url'][:60]}...) is invalid or unreachable via Tor port {port_to_use}. It will be skipped.{C_END}") # MODIFIED
+    validation_port = random.choice(tor_ports)
+    print(f"{C_CYAN}  Using Tor SOCKS Port {validation_port} for validation process.{C_END}")
     
-    if not valid_links:
-        print(f"{C_WARNING}{EMOJI_ERROR} No valid links to process after validation.{C_END}") # MODIFIED (used EMOJI_ERROR)
-    return valid_links
-
-def estimate_total_time(links, views_per_link, num_connections):
-    """
-    Estimates the total time required to generate the views.
-    Args:
-        links (list): List of link dictionaries (must include 'length').
-        views_per_link (int): Number of views to generate for each link (0 for continuous).
-        num_connections (int): Number of parallel connections/threads.
-    Returns:
-        str: A human-readable string of the estimated time, or relevant message.
-    """
-    if not links or num_connections <= 0:
-        return "N/A (cannot estimate without links or connections)"
-    if views_per_link == 0: # Continuous mode
-        return "Continuous (runs until manually stopped)"
-    
-    total_watch_seconds_all_links_one_cycle = sum(link['length'] for link in links)
-    total_watch_seconds_all_views = total_watch_seconds_all_links_one_cycle * views_per_link
-
-    # Estimate overhead: random start delay (avg 3s) + inter-view delay (avg ~7s for fixed, ~15s for continuous)
-    # Plus very small time for the actual request/response aside from watch time.
-    # This is highly approximate.
-    avg_overhead_per_view_action = get_random_start_delay() + 7 # Approx 3 + 7 = 10s
-    total_actions = len(links) * views_per_link
-    total_overhead_seconds = total_actions * avg_overhead_per_view_action
-
-    # Total seconds if run serially
-    grand_total_seconds_serial = total_watch_seconds_all_views + total_overhead_seconds
-    
-    # Estimate with parallel connections. This is not perfectly linear.
-    # A simple division might be too optimistic. Let's add a parallelism efficiency factor (e.g., 0.7-0.9)
-    # For simplicity, just dividing by num_connections gives a very rough lower bound.
-    estimated_seconds = grand_total_seconds_serial / num_connections
-    
-    # Add a general buffer for Tor circuit establishment, other latencies
-    estimated_seconds *= 1.3 # 30% general buffer
-
-    if estimated_seconds < 1:
-        estimated_seconds = 1 # Avoid 0 seconds estimation for very small tasks
-        
-    if estimated_seconds < 60:
-        return f"~{int(round(estimated_seconds))} seconds"
-    elif estimated_seconds < 3600:
-        return f"~{int(round(estimated_seconds / 60))} minutes"
-    else:
-        h = int(estimated_seconds / 3600)
-        m = int(round((estimated_seconds % 3600) / 60))
-        return f"~{h} hours and {m} minutes"
-
-# Updated show_tor_status to accept and iterate over a list of ports.
-def show_tor_status(ports_to_use, base_control_port): # Signature updated
-    """
-    Checks the status of specified Tor SOCKS ports.
-    Attempts to start the general Tor service via pytor if no ports are initially active.
-    Warns if some ports are not operational and exits if the primary port is not working.
-    """
-    print(f"\n{C_BLUE}{EMOJI_TOR} Checking Tor SOCKS Port Status for: {ports_to_use}...{C_END}")
-    
-    operational_ports = []
-    
-    if not ports_to_use:
-        print(f"{C_FAIL}{EMOJI_ERROR} No Tor ports specified to check.{C_END}")
-        sys.exit(1)
-
-    def check_ports(port_list, existing_operational_ports):
-        current_operational = list(existing_operational_ports) # Work on a copy
-        for port_to_check in port_list:
-            if port_to_check in current_operational: # Skip if already confirmed
-                continue
-            print(f"{C_CYAN}  Checking SOCKS Port: {port_to_check}...{C_END}")
-            stop_event = threading.Event()
-            spinner_thread = threading.Thread(target=spinner_animation, args=(f"Verifying Tor SOCKS port {port_to_check}", stop_event, 20), kwargs={"emoji": EMOJI_SEARCH, "color": C_CYAN}) # Timeout 20s
-            spinner_thread.start()
-            current_ip = None
-            try:
-                current_ip = pytor.get_ip(port_to_check) # pytor.get_ip should handle its own timeout
-            except Exception as e: # Catch exceptions from pytor.get_ip() itself
-                print(f"{C_GRAY}    Exception during pytor.get_ip({port_to_check}): {e}{C_END}") # Debug level
-            finally:
-                stop_event.set()
-                spinner_thread.join()
-
-            if current_ip:
-                print(f"{C_GREEN}{EMOJI_SUCCESS} Tor SOCKS Port {port_to_check} is operational. Current IP: {current_ip}{C_END}")
-                if port_to_check not in current_operational:
-                    current_operational.append(port_to_check)
-            else:
-                print(f"{C_WARNING}{EMOJI_WARNING} Tor SOCKS Port {port_to_check} is NOT operational or IP couldn't be fetched.{C_END}")
-        return current_operational
-
-    # First pass
-    operational_ports = check_ports(ports_to_use, [])
-
-    # If no ports are operational after the first pass, try to start/restart Tor service
-    if not operational_ports:
-        print(f"\n{C_WARNING}{EMOJI_WARNING} No Tor SOCKS ports were initially active.{C_END}")
-        print(f"{C_CYAN}{EMOJI_INFO} Attempting to ensure Tor service is running via pytor.start_tor()... (This may take a moment and might require sudo if Tor isn't correctly permissioned or running){C_END}")
-        
-        stop_event_tor_start = threading.Event()
-        spinner_tor_start_thread = threading.Thread(target=spinner_animation, args=("Attempting to start/initialize Tor service", stop_event_tor_start, 45), kwargs={"emoji": EMOJI_TOR, "color": C_BLUE}) # 45s timeout for Tor start
-        spinner_tor_start_thread.start()
-        tor_started_pytor = False
-        pytor_start_error = ""
-        try:
-            pytor.start_tor() # Assumes this function handles general Tor service start/check.
-                              # It should be idempotent or safe to call if Tor is already running.
-            tor_started_pytor = True # Assume success if no exception
-        except Exception as e:
-            pytor_start_error = str(e)
-        finally:
-            stop_event_tor_start.set()
-            spinner_tor_start_thread.join()
-
-        if tor_started_pytor:
-            print(f"{C_GREEN}{EMOJI_SUCCESS} pytor.start_tor() command issued. Waiting a few seconds for Tor to initialize...{C_END}")
-            time.sleep(10) # Increased wait time after pytor.start_tor()
-            print(f"{C_CYAN}{EMOJI_INFO} Re-checking all specified Tor SOCKS ports...{C_END}")
-            operational_ports = check_ports(ports_to_use, []) # Re-check all ports
-        else:
-            print(f"{C_FAIL}{EMOJI_ERROR} pytor.start_tor() failed or encountered an error: {pytor_start_error}{C_END}")
-            print(f"{C_WARNING}{EMOJI_WARNING} This might be due to permissions (try with sudo -E), Tor not being installed, or a Tor misconfiguration.{C_END}")
-
-
-    # Final assessment
-    if not operational_ports:
-        print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} CRITICAL: Still no Tor SOCKS ports are operational after all attempts.{C_END}")
-    elif ports_to_use[0] not in operational_ports:
-        print(f"\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} CRITICAL: The primary Tor SOCKS port ({ports_to_use[0]}) is NOT operational.{C_END}")
-        print(f"{C_WARNING}  Operational ports found: {operational_ports if operational_ports else 'None'}.{C_END}")
-    
-    if ports_to_use[0] not in operational_ports: # Covers both no operational_ports or primary missing
-        print(f"{C_WARNING}  Please ensure Tor is installed, running, and configured to listen on the required SOCKS ports, especially {C_BOLD}{ports_to_use[0]}{C_END}.{C_END}")
-        print(f"{C_WARNING}  Required ports for this session: {ports_to_use}{C_END}")
-        print(f"{C_CYAN}{EMOJI_INFO}  For multiple connections (if you requested >1), your 'torrc' file needs multiple 'SocksPort' entries.{C_END}")
-        print(f"{C_CYAN}  Example for 3 ports (9050, 9052, 9054) in torrc:{C_END}")
-        print(f"{C_GRAY}    SocksPort 9050{C_END}")
-        print(f"{C_GRAY}    SocksPort 9052{C_END}")
-        print(f"{C_GRAY}    SocksPort 9054{C_END}")
-        print(f"{C_FAIL}Exiting due to Tor port unavailability.{C_END}")
-        sys.exit(1)
-
-    # Check if all requested ports are operational
-    all_requested_are_operational = True
-    non_operational_requested_ports = []
-    for p in ports_to_use:
-        if p not in operational_ports:
-            all_requested_are_operational = False
-            non_operational_requested_ports.append(p)
-
-    if all_requested_are_operational:
-        print(f"\n{C_GREEN}{EMOJI_SUCCESS}{EMOJI_CELEBRATE} All {len(operational_ports)} requested Tor SOCKS ports are operational! IPs fetched for all.{C_END}\n")
-    else:
-        # Primary port is working, but some others are not.
-        print(f"\n{C_WARNING}{EMOJI_WARNING} WARNING: Not all requested Tor SOCKS ports are operational.{C_END}")
-        print(f"{C_GREEN}  Operational ports that will be used: {operational_ports}{C_END}")
-        print(f"{C_FAIL}  Requested ports that are NOT operational: {non_operational_requested_ports}{C_END}")
-        print(f"{C_CYAN}{EMOJI_INFO}  The script will attempt to proceed using the original list: {ports_to_use}.{C_END}")
-        print(f"{C_CYAN}  However, view attempts using non-operational ports ({non_operational_requested_ports}) will likely fail.{C_END}")
-        print(f"{C_WARNING}  For full parallel capacity, ensure Tor is configured for ALL requested ports: {ports_to_use}.{C_END}")
-        print(f"{C_CYAN}  Check your 'torrc' file. Example for ports 9050, 9052, 9054:{C_END}")
-        print(f"{C_GRAY}    SocksPort 9050\\n    SocksPort 9052\\n    SocksPort 9054{C_END}")
-
-    print(f"\n{C_CYAN}{EMOJI_INFO} Tor SOCKS port check finished.{C_END}\n")
-    # Note: This function does not return the filtered list of operational_ports to main.
-    # Main continues to use the originally requested 'ports_to_use'.
-    # Link validation and view_workers will encounter errors if they are assigned a non-operational port.
-    # This is a compromise to simplify the diff for now. Ideally, main should use 'operational_ports'.
-
-def dry_run_summary(links, views_count, num_connections, tor_ports_to_use):
-    print(f"\n{C_HEADER}{EMOJI_DRY_RUN} --- DRY RUN MODE --- {EMOJI_DRY_RUN}{C_END}")
-    print(f"{C_CYAN}{EMOJI_INFO} This will simulate the view generation process without actually sending requests.{C_END}")
-    print(f"{C_BLUE}Configuration Summary:{C_END}")
-    print(f"{C_WHITE}  - Target Links to Process:{C_END}")
-    if links:
-        for i, link_info in enumerate(links):
-            # Ensure title is present, provide fallback if not (though get_user_links should ensure it)
-            title = link_info.get('title', 'N/A') 
-            print(f"{C_GRAY}    {i+1}. {link_info['url']} (Title: {title}){C_END}")
-    else:
-        print(f"{C_GRAY}    No links provided for dry run.{C_END}")
-        
-    print(f"{C_WHITE}  - Views per Link: {C_BOLD}{views_count}{C_END}")
-    print(f"{C_WHITE}  - Number of Parallel Connections/Threads: {C_BOLD}{num_connections}{C_END}")
-    
-    # Display the list of Tor SOCKS ports that will be used.
-    if tor_ports_to_use:
-        ports_str = ", ".join(map(str, tor_ports_to_use))
-        print(f"{C_WHITE}  - Tor SOCKS Ports to be Used: {C_BOLD}{ports_str}{C_END}")
-    else:
-        # This case should ideally not be reached if Tor is essential and ports are configured.
-        print(f"{C_YELLOW}{EMOJI_WARNING}  - Tor SOCKS Ports: None configured or passed (View generation may fail or not use Tor).{C_END}")
-
-    print(f"{C_BLUE}Simulated Actions:{C_END}")
-    if links:
-        print(f"{C_GRAY}  - For each of the {len(links)} link(s):")
-        print(f"{C_GRAY}    - {views_count} view attempts would be simulated.")
-        if num_connections > 0 and tor_ports_to_use:
-            print(f"{C_GRAY}    - If {num_connections} > 1, view attempts would be distributed among threads using ports from: {tor_ports_to_use}.{C_END}")
-            print(f"{C_GRAY}    - Each attempt would try to fetch the video page via a Tor SOCKS proxy on one of the configured ports.{C_END}")
-        else:
-            print(f"{C_GRAY}    - Tor SOCKS proxy usage would depend on single port configuration or availability.{C_END}")
-        print(f"{C_GRAY}    - User agent would be randomized for each attempt.{C_END}")
-        print(f"{C_GRAY}    - Delays would be simulated between actions.{C_END}")
-    else:
-        print(f"{C_GRAY}  - No links to simulate actions for.{C_END}")
-        
-    print(f"\n{C_GREEN}{EMOJI_SUCCESS} Dry run simulation complete. Check the configuration above.{C_END}")
-
-# --- Progress Callback for Workers ---
-def view_progress_callback(results_list_ref, link_id, views_done_for_link_total, overall_views_total, url, success_flag, port_used, watch_duration_or_error_msg, link_title="N/A"):
-    """
-    Callback function for view_worker to report its progress.
-    Args:
-        results_list_ref (list): Reference to the list in the calling scope to store results.
-        link_id (int): Unique ID of the link.
-        views_done_for_link_total (int): Total views completed for this specific link so far.
-        overall_views_total (int): Total views completed overall across all links/workers.
-        url (str): The URL that was processed.
-        success_flag (bool): True if the view was successful, False otherwise.
-        port_used (int): The Tor SOCKS port used for the attempt.
-        watch_duration_or_error_msg (any): Actual watch time if successful, or an error message string if failed.
-        link_title (str): Title of the video/link.
-    """
-    if success_flag:
-        print(f"{C_GREEN}{EMOJI_SUCCESS} View #{views_done_for_link_total} for '{link_title}' ({url[:40]}...) on Port {port_used} SUCCEEDED. Watched for {watch_duration_or_error_msg}s. Overall views: {overall_views_total}.{C_END}")
-        results_list_ref.append((True, url, port_used, None))
-    else:
-        print(f"{C_FAIL}{EMOJI_ERROR} View attempt for '{link_title}' ({url[:40]}...) on Port {port_used} FAILED. Reason: {watch_duration_or_error_msg}. Overall views: {overall_views_total}.{C_END}")
-        results_list_ref.append((False, url, port_used, str(watch_duration_or_error_msg)))
-
-# --- Threaded View Generation ---
-def create_and_run_threads(links_data, views_count_per_link, num_concurrent_workers, tor_ports_to_use, results_list_ref):
-    global stop_event_global, completed_views_total, views_per_link_tracker
-
-    if not tor_ports_to_use:
-        print(f"{C_FAIL}{EMOJI_ERROR} Tor port list is empty in create_and_run_threads. Cannot proceed.{C_END}")
-        return 0, 0
-
-    print(f"\n{C_BLUE}{EMOJI_THREADS} Preparing to launch up to {num_concurrent_workers} concurrent viewer worker(s) for {len(links_data)} link(s)...{C_END}")
-    if tor_ports_to_use:
-         print(f"{C_CYAN}{EMOJI_INFO} Distributing {len(tor_ports_to_use)} Tor SOCKS ports ({', '.join(map(str, tor_ports_to_use))}) among workers.{C_END}")
-    else:
-         print(f"{C_WARNING}{EMOJI_WARNING} No Tor SOCKS ports provided to distribute.{C_END}")
-
-    completed_views_total = 0
-    views_per_link_tracker = {}
-    active_threads_list = []
-    port_assignment_index = 0
-    launched_thread_objects = []
-
-    for link_idx, link_info in enumerate(links_data):
+    valid_links_data = []
+    for i, link_data in enumerate(links_data_list):
         if stop_event_global.is_set():
-            print(f"{C_WARNING}{EMOJI_INFO} Stop signal received during thread creation. No more new tasks will be started.{C_END}")
+            print(f"\n{C_WARNING}{EMOJI_WARNING} Validation interrupted by user.{C_END}")
             break
-        while True:
-            active_threads_list = [t for t in active_threads_list if t.is_alive()]
-            if len(active_threads_list) < num_concurrent_workers:
-                break
-            if stop_event_global.is_set(): break
-            time.sleep(0.5)
-        if stop_event_global.is_set(): break
-        url = link_info['url']
-        video_title = link_info.get('title', f"LinkID_{link_info.get('id', 'N/A')}")
-        assigned_tor_port = tor_ports_to_use[port_assignment_index % len(tor_ports_to_use)]
-        port_assignment_index += 1
-        thread_name = f"Worker-{link_info.get('id', 'X')}-{os.path.basename(urlparse(url).path)[:15]}"
-        progress_cb_for_worker = lambda lid, vdone, ovdone, lkurl, succ, port, dur_err, vt=video_title: view_progress_callback(
-            results_list_ref, lid, vdone, ovdone, lkurl, succ, port, dur_err, vt
-        )
-        thread = threading.Thread(
-            target=view_worker,
-            args=(
-                link_info,
-                views_count_per_link,
-                [assigned_tor_port],
-                progress_cb_for_worker
-            ),
-            name=thread_name
-        )
-        active_threads_list.append(thread)
-        launched_thread_objects.append(thread)
-        thread.start()
-        print(f"{C_GRAY}{EMOJI_INFO} Launched: {thread_name} for '{video_title}' (Target: {views_count_per_link} views, Port: {assigned_tor_port}){C_END}")
-        if len(links_data) > 1 and link_idx < len(links_data) -1 :
-            time.sleep(random.uniform(0.1, 0.5))
-    print(f"\n{C_BLUE}{EMOJI_WAIT} All {len(launched_thread_objects)} worker threads for links have been launched. Waiting for completion...{C_END}")
-    for thread_obj in launched_thread_objects:
-        thread_obj.join(timeout=30)
-        if thread_obj.is_alive():
-            print(f"{C_WARNING}{EMOJI_WARNING} Thread {thread_obj.name} did not terminate cleanly after stop signal and join timeout. It might be stuck in a blocking call.{C_END}")
-    print(f"\n{C_GREEN}{EMOJI_SUCCESS} All worker threads have completed or been signaled to stop.{C_END}")
-    total_success_count = 0
-    total_failure_count = 0
-    for success, _, _, _ in results_list_ref:
+        print(f"{C_CYAN}  ({i+1}/{len(links_data_list)}) Validating: {link_data['title']}... {C_END}", end="") # Moved print here
+        is_valid = validate_link_with_tor(link_data['url'], validation_port, link_data['title']) # validate_link_with_tor will print its own result now
+        if is_valid:
+            valid_links_data.append(link_data)
+        time.sleep(random.uniform(0.5, 1.5)) 
+
+    if not stop_event_global.is_set(): # Only print summary if not interrupted
+        if valid_links_data:
+            print(f"\n{C_GREEN}{EMOJI_SUCCESS} Validation complete: {len(valid_links_data)} out of {len(links_data_list)} links are valid and accessible.{C_END}")
+        else:
+            print(f"\n{C_FAIL}{EMOJI_ERROR} Validation complete: No valid/accessible links found.{C_END}")
+    return valid_links_data
+
+def dry_run_summary(links_data, views_per_link, num_connections, tor_ports_to_use):
+    """
+    Prints a summary of what the script would do in a dry run.
+    """
+    print(f"\\n{C_HEADER}{EMOJI_DRY_RUN} --- KADDU YT-VIEWS: DRY RUN SUMMARY --- {EMOJI_DRY_RUN}{C_END}")
+    print(f"{C_CYAN}The script is configured as follows (NO actual views will be generated):{C_END}")
+    print(f"{C_BLUE}  {EMOJI_VIDEO} Links to process: {len(links_data)}{C_END}")
+    for i, link_data in enumerate(links_data):
+        link_type = "YouTube Short" if link_data['is_short'] else "YouTube Video"
+        print(f"{C_GRAY}    {i+1}. '{link_data['title']}' ({link_data['url'][:50]}...) - Type: {link_type}{C_END}")
+    print(f"{C_BLUE}  {EMOJI_VIEW} Target views per link: {views_per_link}{C_END}")
+    print(f"{C_BLUE}  {EMOJI_THREADS} Requested parallel connections: {num_connections}{C_END}")
+    if tor_ports_to_use:
+        print(f"{C_BLUE}  {EMOJI_TOR} Tor SOCKS ports intended for use: {tor_ports_to_use}{C_END}")
+    else:
+        print(f"{C_WARNING}  {EMOJI_TOR} No Tor SOCKS ports currently identified for use (this might be resolved in actual run).{C_END}")
+
+    total_potential_views = len(links_data) * views_per_link
+    print(f"{C_BLUE}  {EMOJI_GEAR} Total potential view simulations planned: {total_potential_views}{C_END}")
+
+    # Estimate watch times based on view_worker logic
+    avg_video_watch_time_base = (45 + 120) / 2 # Average of min/max from view_worker
+    avg_short_watch_time_base = (15 + 40) / 2  # Average of min/max from view_worker
+    
+    estimated_total_watch_seconds = 0
+    for link_data in links_data:
+        watch_time = avg_short_watch_time_base if link_data['is_short'] else avg_video_watch_time_base
+        estimated_total_watch_seconds += watch_time * views_per_link
+        
+    avg_overhead_per_view = 75 
+    total_overhead_seconds = total_potential_views * avg_overhead_per_view
+    total_simulation_seconds = estimated_total_watch_seconds + total_overhead_seconds
+    
+    if num_connections > 0 and total_potential_views > 0:
+        estimated_duration_seconds = total_simulation_seconds / num_connections 
+    elif total_potential_views > 0:
+        estimated_duration_seconds = total_simulation_seconds
+    else:
+        estimated_duration_seconds = 0
+
+    time_str = "N/A"
+    if estimated_duration_seconds > 0:
+        time_str = time.strftime("%H hours, %M minutes, %S seconds", time.gmtime(estimated_duration_seconds))
+    
+    print(f"{C_BLUE}  {EMOJI_WAIT} Estimated execution time for these tasks (VERY ROUGH): {C_BOLD}{time_str}{C_END}")
+    print(f"{C_GRAY}    (Actual time for a real run will depend on network conditions, Tor speed, system load, and YouTube's responses.){C_END}")
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+
+def view_worker(link_data, tor_socks_port, view_num_for_link, total_views_for_link, overall_task_num, total_overall_tasks):
+    """
+    Worker function executed by each thread to simulate a single view.
+    """
+    global overall_completed_views_total, overall_failed_attempts_total
+
+    if stop_event_global.is_set():
+        return False, "Stopped by global event before start"
+
+    video_url = link_data['url']
+    link_title = link_data['title'] 
+    is_short = link_data['is_short']
+
+    base_watch_video = random.randint(45, 120)
+    base_watch_short = random.randint(15, 40)
+    watch_duration = base_watch_short if is_short else base_watch_video
+    
+    time.sleep(random.uniform(0.5, 2.5)) 
+
+    task_progress_str = f"(Task {overall_task_num}/{total_overall_tasks} | Link '{link_title}' View {view_num_for_link}/{total_views_for_link})"
+    print(f"{C_CYAN}{EMOJI_VIEW} {task_progress_str} Starting via Port {tor_socks_port} for ~{watch_duration}s...{C_END}")
+
+    success, message = simulate_view_with_selenium(video_url, tor_socks_port, watch_duration, f"{link_title} {task_progress_str}")
+
+    with completed_views_lock:
         if success:
-            total_success_count += 1
+            overall_completed_views_total += 1
+            print(f"{C_GREEN}{EMOJI_SUCCESS} {task_progress_str} COMPLETED on Port {tor_socks_port}. ({message}){C_END}")
         else:
-            total_failure_count += 1
-    return total_success_count, total_failure_count
+            overall_failed_attempts_total += 1
+            print(f"{C_FAIL}{EMOJI_ERROR} {task_progress_str} FAILED on Port {tor_socks_port}. ({message}){C_END}")
+    
+    if not stop_event_global.is_set():
+        time.sleep(random.uniform(2, 5))
+    
+    if random.random() < 0.03:
+        if not stop_event_global.is_set():
+            print(f"{C_CYAN}{EMOJI_INFO} [Infotainment from Worker] {get_random_infotainment()}{C_END}")
 
-# --- Simulate View (Refactored) ---
-def simulate_view(link, tor_port, watch_time):
-    proxies = {"http": f"socks5h://127.0.0.1:{tor_port}", "https": f"socks5h://127.0.0.1:{tor_port}"}
-    headers = {"User-Agent": get_random_user_agent()}
-    try:
-        response = requests.get(link, headers=headers, proxies=proxies, timeout=20, stream=True)
-        if response.status_code < 400:
-            time.sleep(watch_time)
-            response.close()
-            return True, None
-        error_msg = f"HTTP Status {response.status_code}"
-        response.close()
-        return False, error_msg
-    except requests.exceptions.Timeout:
-        return False, "Request timed out"
-    except requests.exceptions.RequestException as e:
-        return False, f"RequestException: {str(e)}"
-    except Exception as e:
-        return False, f"Unexpected error: {str(e)}"
+    return success, message
 
-# --- View Worker (Refactored) ---
-def view_worker(link_info, views_to_generate_for_this_link, tor_ports_available, progress_callback_func):
-    global completed_views_total, views_per_link_tracker, stop_event_global
-    link_id = link_info['id']
-    link_url = link_info['url']
-    is_short_video = link_info['type'] == 'short'
-    base_video_length = link_info['length']
-    local_views_done_count = 0
-    if not tor_ports_available:
-        print(f"{C_FAIL}{EMOJI_ERROR} Critical: No Tor ports assigned to worker for {link_url}. Worker exiting.{C_END}")
+def create_and_run_threads(links_data, views_per_link, num_connections, tor_ports_to_use):
+    """
+    Creates and manages a pool of threads to simulate views.
+    """
+    print(f"\\n{C_HEADER}{EMOJI_THREADS} {C_BOLD}Initiating View Generation Process{C_END}")
+    print(f"{C_CYAN}  Targeting {views_per_link} views for each of the {len(links_data)} link(s).{C_END}")
+    print(f"{C_CYAN}  Will use {num_connections} parallel worker(s) across Tor ports: {tor_ports_to_use}{C_END}")
+    
+    if not links_data or not tor_ports_to_use or num_connections == 0:
+        print(f"{C_FAIL}{EMOJI_ERROR} Cannot start view generation: Missing links, Tor ports, or connections specified.{C_END}")
         return
-    current_port_index = random.randrange(len(tor_ports_available))
-    while not stop_event_global.is_set():
-        if views_to_generate_for_this_link > 0 and local_views_done_count >= views_to_generate_for_this_link:
-            break
-        chosen_tor_port = tor_ports_available[current_port_index % len(tor_ports_available)]
-        current_port_index += 1
-        pre_view_delay = get_random_start_delay()
-        sleep_chunk_end_time = time.time() + pre_view_delay
-        while time.time() < sleep_chunk_end_time:
-            if stop_event_global.is_set(): break
-            time.sleep(min(0.5, sleep_chunk_end_time - time.time()))
-        if stop_event_global.is_set(): break
-        actual_watch_time = get_random_watch_time(base_video_length, is_short_video)
-        if stop_event_global.is_set(): break
-        view_successful, sim_result_msg = simulate_view(link_url, chosen_tor_port, actual_watch_time)
-        if stop_event_global.is_set(): break
-        if view_successful:
-            with completed_views_lock:
-                completed_views_total += 1
-                local_views_done_count += 1
-                views_per_link_tracker[link_id] = views_per_link_tracker.get(link_id, 0) + 1
-                current_link_total_views = views_per_link_tracker[link_id]
-            progress_callback_func(link_id, current_link_total_views, completed_views_total, link_url, True, chosen_tor_port, actual_watch_time)
+
+    all_view_tasks_details = []
+    total_overall_tasks_count = len(links_data) * views_per_link
+    current_overall_task_num = 0
+    for link_item in links_data:
+        for i in range(1, views_per_link + 1):
+            current_overall_task_num += 1
+            all_view_tasks_details.append((link_item, i, views_per_link, current_overall_task_num, total_overall_tasks_count))
+    
+    random.shuffle(all_view_tasks_details)
+
+    port_cycler = itertools.cycle(tor_ports_to_use)
+    submitted_tasks_count = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_connections) as executor:
+        future_to_task = {} # To map future back to task details for logging if needed
+        
+        for task_link_data, task_view_num, task_total_views in all_view_tasks:
+            if stop_event_global.is_set():
+                print(f"{C_WARNING}{EMOJI_WARNING} Global stop signal received. No more tasks will be submitted.{C_END}")
+                break
+            
+            current_tor_port = next(port_cycler)
+            future = executor.submit(view_worker, task_link_data, current_tor_port, task_view_num, task_total_views)
+            future_to_task[future] = f"View {task_view_num} for {task_link_data['title'][:30]}"
+            submitted_tasks +=1
+            
+            # Brief pause between submitting tasks to avoid bursting Tor connections
+            time.sleep(random.uniform(0.2, 0.8)) 
+
+        print(f"\n{C_BLUE}{EMOJI_WAIT} All {submitted_tasks}/{total_tasks_to_submit} view tasks submitted to workers. Monitoring completion... (Ctrl+C to signal stop){C_END}")
+        
+        # Wait for futures to complete, respecting stop_event_global
+        try:
+            for future in concurrent.futures.as_completed(future_to_task.keys()):
+                task_desc = future_to_task[future]
+                if stop_event_global.is_set():
+                    # print(f"{C_YELLOW}  Task {task_desc} completion check skipped due to stop signal.{C_END}")
+                    pass # Worker itself checks stop_event_global
+                try:
+                    future.result(timeout=1) # Check result briefly, but don't hang if worker is stuck despite stop_event
+                except concurrent.futures.CancelledError:
+                    print(f"{C_GRAY}  Task {task_desc} was cancelled.{C_END}")
+                except concurrent.futures.TimeoutError:
+                    pass # Worker is still running, or finished and we missed it.
+                except Exception as exc:
+                    print(f"{C_FAIL}{EMOJI_ERROR} Task {task_desc} generated an error: {exc}{C_END}")
+                
+                if stop_event_global.is_set() and executor._work_queue.qsize() == 0 and len(executor._threads) == 0:
+                     print(f"{C_YELLOW} Stop signal active and executor queue empty/threads winding down.{C_END}")
+                     break
+
+        except KeyboardInterrupt: # Handle Ctrl+C during as_completed
+            print(f"\n{C_WARNING}{EMOJI_WARNING} Keyboard interrupt during task monitoring. Signaling stop to all workers...{C_END}")
+            stop_event_global.set()
+            # Give workers a moment to react to the stop_event_global
+            time.sleep(5) 
+            # executor.shutdown(wait=True, cancel_futures=True) # Py3.9+ for cancel_futures
+            executor.shutdown(wait=True) # Shutdown remaining threads
+
+    if stop_event_global.is_set():
+        print(f"\n{C_WARNING}{EMOJI_WARNING} View generation process was interrupted.{C_END}")
+    else:
+        print(f"\n{C_GREEN}{EMOJI_CELEBRATE} All submitted view generation tasks have been processed.{C_END}")
+
+def estimate_total_time(links_data, views_per_link, num_connections):
+    if not links_data or num_connections == 0 or views_per_link == 0:
+        print(f"\n{C_BLUE}{EMOJI_WAIT} {C_BOLD}Estimated Total Time{C_END}")
+        print(f"{C_CYAN}  Cannot estimate time: No links, views, or connections specified.{C_END}")
+        return True # Allow to proceed to confirmation, where it might be caught.
+
+    # Average estimates (these are very rough)
+    avg_selenium_overhead_per_view = random.uniform(40, 70) # Page load, cookie handling, play button, quit
+    avg_random_delays_per_view = random.uniform(3, 8) # Delays between views/actions
+    
+    total_tasks = len(links_data) * views_per_link
+    
+    total_estimated_seconds_for_all_tasks = 0
+    for link_data in links_data:
+        is_short = link_data['is_short']
+        # Use average of the random ranges from view_worker
+        avg_watch_duration = ((15 + 40) / 2) if is_short else ((45 + 120) / 2)
+        
+        time_per_single_view = avg_selenium_overhead_per_view + avg_watch_duration + avg_random_delays_per_view
+        total_estimated_seconds_for_all_tasks += time_per_single_view * views_per_link
+
+    if num_connections > 0:
+        effective_total_seconds = total_estimated_seconds_for_all_tasks / num_connections
+    elif total_tasks > 0: # Avoid division by zero if somehow num_connections is 0
+        effective_total_seconds = total_estimated_seconds_for_all_tasks
+    else:
+        effective_total_seconds = 0
+
+    time_str = time.strftime("%H hours, %M minutes, %S seconds", time.gmtime(effective_total_seconds))
+
+    print(f"\n{C_BLUE}{EMOJI_WAIT} {C_BOLD}Estimated Total Time{C_END}")
+    print(f"{C_CYAN}  Based on your settings ({total_tasks} total views), the estimated time is roughly: {C_BOLD}{time_str}{C_END}")
+    print(f"{C_GRAY}    (Actual time will depend heavily on network, Tor, system load, and YouTube's behavior.){C_END}")
+    print(f"{C_CYAN}[Infotainment] {get_random_infotainment()}{C_END}")
+    return True # Always return true to allow user to confirm
+
+def get_user_confirmation_to_proceed():
+    print(f"\n{C_YELLOW}{EMOJI_PROMPT} {C_BOLD}Ready to start the YouTube view generation process?{C_END}")
+    while True:
+        choice = input(f"{C_WARNING}  {EMOJI_ROCKET} Proceed with generating views? (yes/no, or 'quit'): {C_END}").strip().lower()
+        if choice.lower() == 'quit':
+            print(f"{C_FAIL}{EMOJI_FAIL} User requested quit. Exiting script.{C_END}")
+            return False # Signal to exit
+        if choice in ['yes', 'y']:
+            print(f"{C_GREEN}{EMOJI_SUCCESS} User confirmed. Initiating view generation... Strap in! {EMOJI_ROCKET}{C_END}")
+            return True
+        elif choice in ['no', 'n']:
+            print(f"{C_FAIL}{EMOJI_FAIL} User cancelled the operation. Exiting script.{C_END}")
+            return False
         else:
-            with completed_views_lock:
-                 current_link_total_views = views_per_link_tracker.get(link_id, 0)
-            progress_callback_func(link_id, current_link_total_views, completed_views_total, link_url, False, chosen_tor_port, sim_result_msg)
-        post_view_delay_base = 10 if views_to_generate_for_this_link == 0 else 5
-        post_view_delay = random.uniform(post_view_delay_base, post_view_delay_base + 10)
-        sleep_chunk_end_time = time.time() + post_view_delay
-        while time.time() < sleep_chunk_end_time:
-            if stop_event_global.is_set(): break
-            time.sleep(min(0.5, sleep_chunk_end_time - time.time()))
-        if stop_event_global.is_set(): break
+            print(f"{C_FAIL}{EMOJI_ERROR} Invalid input. Please type 'yes' or 'no'.{C_END}")
 
+# --- MAIN FUNCTION ---
 def main():
-    """Main function to run the YouTube view generation system."""
+    global overall_completed_views_total, overall_failed_attempts_total
+    overall_completed_views_total = 0 
+    overall_failed_attempts_total = 0
+    stop_event_global.clear() # Ensure stop event is clear at the start of a new run
+
+    # 1. Initial Setup & Welcome
+    print_animated_banner()
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+    require_venv_or_exit()
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+    check_root()
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+    check_and_install_python_dependencies()
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+    ensure_geckodriver_available()
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+    ensure_tor_installed()
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+
+    # 2. Check for Pytor Module (Crucial for advanced Tor management)
+    if not pytor: # pytor is imported at the top of the file
+        print(f"{C_FAIL}{EMOJI_ERROR} CRITICAL: The 'pytor.py' module is not available or failed to import.{C_END}")
+        print(f"{C_WARNING}  This script relies on 'pytor.py' for advanced Tor instance management (starting, stopping, IP rotation).{C_END}")
+        print(f"{C_CYAN}  Please ensure 'pytor.py' is in the same directory as 'main.py'. Exiting.{C_END}")
+        sys.exit(1)
+    else:
+        print(f"{C_GREEN}{EMOJI_SUCCESS} 'pytor.py' module loaded successfully.{C_END}")
     
-    # All critical setup (venv, root check, dependencies, Tor install/service)
-    # has already been performed by the global script execution block when the script was loaded.
+    # Informational check for any existing Tor processes (pgrep based)
+    if check_if_any_tor_process_running():
+        print(f"{C_GREEN}{EMOJI_INFO} An existing Tor process seems to be running on the system (detected via pgrep).{C_END}")
+        print(f"{C_CYAN}  This script will attempt to use its own managed Tor instances or auto-detected ports.{C_END}")
+    else:
+        print(f"{C_YELLOW}{EMOJI_INFO} No obvious existing Tor process found by pgrep. Script will manage its own Tor instances.{C_END}")
+
+
+    # 3. Get User Inputs
+    print(f"\\n{C_HEADER}{EMOJI_PROMPT} --- GATHERING YOUR REQUIREMENTS --- {EMOJI_PROMPT}{C_END}")
+    user_links_input = get_user_links()
+    if not user_links_input: # Function handles its own quit, but double check for empty list
+        print(f"{C_FAIL}{EMOJI_ERROR} No YouTube links were provided. Cannot proceed. Exiting.{C_END}")
+        sys.exit(1)
     
-    # Now, print the banner as we are about to interact with the user.
-    print_animated_banner() # Moved here: Banner is shown after all pre-flight checks pass.
+    views_count_per_link = get_views_per_link()
+    # get_views_per_link handles its own quit logic
 
-    # The following calls are now redundant because they are handled by the prioritized global setup:
-    # check_virtual_environment() # Redundant: Done by require_venv_or_exit() globally.
-    # check_root() # Redundant: Done globally in the prioritized setup block.
-    # install_requirements_and_tor() 
-    #   - Dependency checks are done by check_and_install_python_dependencies() globally.
-    #   - Tor installation is done by ensure_tor_installed() globally.
-    #   - Tor service starting is initially handled by ensure_tor_service_running() globally.
-
-    print(TIP_TEXT) 
-    if input(f"{C_CYAN}{EMOJI_PROMPT} Press Enter to continue or type 'help': {C_END}").strip().lower() == 'help':
-        print(HELP_TEXT)
-
-    user_links_data = get_user_links()
-    if not user_links_data:
-        print(f"{C_WARNING}{EMOJI_INFO} No links provided. Exiting.{C_END}")
-        sys.exit(1)
-
-    views_per_target_link = get_views_per_link()
-    num_parallel_connections = get_connection_count()
-
-    # --- Robust Tor Port and Instance Management ---
-    pytor.ensure_tor_binary()
-    print(f"\n{C_BLUE}{EMOJI_TOR} Detecting available system Tor SOCKS ports...{C_END}")
-    available_ports = pytor.detect_tor_ports(9050, 9100, verbose_scan=False)
-    print(f"{C_GREEN}{EMOJI_SUCCESS} Found {len(available_ports)} system Tor port(s): {available_ports}{C_END}")
-
-    tor_instances = []  # Track user-space instances for cleanup
-    if len(available_ports) < num_parallel_connections:
-        additional_needed = num_parallel_connections - len(available_ports)
-        print(f"{C_YELLOW}{EMOJI_WARNING} Only {len(available_ports)} system Tor port(s) available. Starting {additional_needed} user-space Tor instance(s)...{C_END}")
-        free_ports = pytor.find_free_ports(additional_needed, start_search_port=9101)
-        for port in free_ports:
-            instance = pytor.start_tor_instance(port)
-            if instance and pytor.verify_tor_instance(instance, timeout=90):
-                tor_instances.append(instance)
-                available_ports.append(port)
-            else:
-                print(f"{C_RED}{EMOJI_ERROR} Failed to start/verify Tor instance on port {port}. Skipping.{C_END}")
-
-    if not available_ports:
-        print(f"{C_FAIL}{EMOJI_ERROR} No Tor ports available. Exiting.{C_END}")
-        sys.exit(1)
-
-    if len(available_ports) < num_parallel_connections:
-        print(f"{C_YELLOW}{EMOJI_WARNING} Only {len(available_ports)} total ports available. Reducing parallel connections to {len(available_ports)}.{C_END}")
-        num_parallel_connections = len(available_ports)
-
-    print(f"{C_GREEN}{EMOJI_SUCCESS} Using Tor ports: {available_ports}{C_END}")
-
-    # ... continue as before, but use available_ports instead of tor_ports_to_use ...
-    validated_links = validate_all_links(user_links_data, available_ports)
-    if not validated_links:
-        print(f"{C_FAIL}{EMOJI_ERROR} No valid links to process after validation. Exiting.{C_END}")
-        pytor.cleanup_tor_instances(tor_instances)
-        sys.exit(1)
+    num_connections_requested = get_connection_count()
+    # get_connection_count handles its own quit logic
 
     is_dry_run = get_dry_run_choice()
+    # get_dry_run_choice handles its own quit logic
+
+    # 4. Tor Setup and Port Management using Pytor
+    print(f"\\n{C_HEADER}{EMOJI_TOR} --- KADDU YT-VIEWS TOR NETWORK SETUP --- {EMOJI_TOR}{C_END}")
+    managed_tor_instances_details = [] # To store details of Tor instances started by this script
+    operational_ports = []
+    
+    # Step 4a: Detect any already running Tor SOCKS ports (system or user-started)
+    print(f"{C_CYAN}{EMOJI_SEARCH} Detecting existing operational Tor SOCKS ports (using pytor.detect_tor_ports)...{C_END}")
+    try:
+        existing_ports = pytor.detect_tor_ports(start_port=9050, end_port=9070, verbose_scan=False) 
+        if existing_ports:
+            print(f"{C_GREEN}{EMOJI_SUCCESS} Found {len(existing_ports)} existing operational Tor SOCKS port(s): {sorted(list(set(existing_ports)))}{C_END}")
+            operational_ports.extend(existing_ports)
+        else:
+            print(f"{C_YELLOW}{EMOJI_INFO} No pre-existing operational Tor SOCKS ports detected by pytor in the checked range.{C_END}")
+    except Exception as e:
+        print(f"{C_FAIL}{EMOJI_ERROR} Error during pytor Tor port detection: {e}{C_END}")
+        print(f"{C_WARNING} Will proceed assuming no existing system ports, and will try to start new user-space instances.{C_END}")
+
+    # Step 4b: If more ports are needed, try to start user-space Tor instances with pytor
+    actual_num_connections = num_connections_requested
+    if len(set(operational_ports)) < num_connections_requested:
+        ports_to_start_count = num_connections_requested - len(set(operational_ports))
+        print(f"{C_CYAN}{EMOJI_GEAR} Need to start {ports_to_start_count} new user-space Tor instance(s) to meet the {num_connections_requested} connection requirement.{C_END}")
+        
+        if hasattr(pytor, 'ensure_tor_binary'):
+             if not pytor.ensure_tor_binary():
+                print(f"{C_FAIL}{EMOJI_ERROR} 'tor' binary not found by pytor. Cannot start new Tor instances. Exiting.{C_END}")
+                if managed_tor_instances_details: pytor.cleanup_tor_instances(managed_tor_instances_details)
+                sys.exit(1)
+        elif not is_command_available("tor"):
+            print(f"{C_FAIL}{EMOJI_ERROR} 'tor' command not found in PATH. Cannot start new Tor instances. Exiting.{C_END}")
+            if managed_tor_instances_details: pytor.cleanup_tor_instances(managed_tor_instances_details)
+            sys.exit(1)
+
+        for i in range(ports_to_start_count):
+            if stop_event_global.is_set(): 
+                print(f"{C_WARNING}{EMOJI_WARNING} Tor instance startup interrupted by user.{C_END}")
+                break
+            print(f"{C_BLUE}{EMOJI_CONNECTING} Attempting to start user-space Tor instance #{i+1} of {ports_to_start_count} (using pytor.py)...{C_END}")
+            try:
+                start_search_port_socks = 9150 + (len(managed_tor_instances_details) * 10)
+                start_search_port_control = start_search_port_socks + 1
+
+                instance_details = pytor.start_tor_instance(
+                    socks_port=None, 
+                    control_port=None, 
+                    torrc_custom_settings=None, 
+                    auto_find_ports_start_socks=start_search_port_socks,
+                    auto_find_ports_start_control=start_search_port_control
+                )
+
+                if instance_details and instance_details.get('socks_port'):
+                    if pytor.verify_tor_instance(instance_details, timeout=120):
+                        new_port = instance_details['socks_port']
+                        print(f"{C_GREEN}{EMOJI_SUCCESS} User-space Tor instance #{i+1} started and verified successfully on SOCKS Port: {new_port} (PID: {instance_details.get('pid', 'N/A')}){C_END}")
+                        operational_ports.append(new_port)
+                        managed_tor_instances_details.append(instance_details)
+                        if len(set(operational_ports)) >= num_connections_requested: break
+                    else: # This is the specific else block to fix for indentation
+                        print(f"{C_FAIL}{EMOJI_ERROR} Failed to verify newly started user-space Tor instance #{i+1} (SOCKS Port: {instance_details.get('socks_port', 'N/A')}).{C_END}")
+                        if instance_details: pytor.cleanup_tor_instances([instance_details])
+                else:
+                    print(f"{C_FAIL}{EMOJI_ERROR} Failed to start user-space Tor instance #{i+1}. `pytor.start_tor_instance` returned None or no SOCKS port.{C_END}")
+            except Exception as e_start:
+                print(f"{C_FAIL}{EMOJI_ERROR} Exception while trying to start user-space Tor instance #{i+1}: {e_start}{C_END}")
+                import traceback
+                print(f"{C_GRAY}{traceback.format_exc()[:300]}...{C_END}")
+    
+    # Step 4c: Final check and selection of ports to use.
+    if not operational_ports:
+        print(f"\\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} CRITICAL: No Tor SOCKS ports are operational after all attempts.{C_END}")
+        if pytor and managed_tor_instances_details: pytor.cleanup_tor_instances(managed_tor_instances_details)
+        sys.exit(1)
+
+    tor_ports_to_use = sorted(list(set(operational_ports)))[:num_connections_requested] 
+    actual_num_connections = len(tor_ports_to_use)
+    
+    if actual_num_connections == 0:
+        print(f"\\n{C_FAIL}{EMOJI_ERROR}{EMOJI_FAIL} CRITICAL: No operational Tor ports available. Exiting.{C_END}")
+        if pytor and managed_tor_instances_details: pytor.cleanup_tor_instances(managed_tor_instances_details)
+        sys.exit(1)
+    elif actual_num_connections < num_connections_requested:
+        print(f"\\n{C_WARNING}{EMOJI_WARNING} Only {actual_num_connections} unique Tor SOCKS port(s) available ({tor_ports_to_use}), not {num_connections_requested}.{C_END}")
+        print(f"{C_CYAN}   Proceeding with these {actual_num_connections} connection(s).{C_END}")
+    else:
+        print(f"\\n{C_GREEN}{EMOJI_SUCCESS} Successfully configured {actual_num_connections} Tor SOCKS port(s): {tor_ports_to_use}{C_END}")
+
+    # 5. Link Data Preparation & Validation
+    print(f"\\n{C_HEADER}{EMOJI_LINK} {C_BOLD}PREPARING AND VALIDATING LINKS...{C_END}")
+    links_data_for_processing = []
+    for i, link_url_from_user in enumerate(user_links_input):
+        parsed_url = urlparse(link_url_from_user)
+        video_id_match = re.search(r"(?:v=|/embed/|/shorts/|youtu\.be/)([a-zA-Z0-9_\-]{11})", link_url_from_user)
+        video_id_or_slug = video_id_match.group(1) if video_id_match else f"customID{i+1}"
+        simple_title = f"Video_{video_id_or_slug}"
+        is_short_link = "shorts" in parsed_url.path.lower() or "/shorts/" in link_url_from_user.lower()
+        links_data_for_processing.append({
+            'id': i, 'url': link_url_from_user, 'title': simple_title, 'is_short': is_short_link 
+        })
+
+    validated_links_data = validate_all_links(links_data_for_processing, tor_ports_to_use)
+    if not validated_links_data:
+        print(f"\\n{C_FAIL}{EMOJI_ERROR} No valid YouTube links after validation. Exiting.{C_END}")
+        if pytor and managed_tor_instances_details: pytor.cleanup_tor_instances(managed_tor_instances_details)
+        sys.exit(1)
+
+    # 6. Dry Run or Actual Execution Logic
     if is_dry_run:
-        dry_run_summary(validated_links, views_per_target_link, num_parallel_connections, available_ports)
-        print(f"\n{C_GREEN}{EMOJI_SUCCESS}Dry run complete. Exiting.{C_END}")
-        pytor.cleanup_tor_instances(tor_instances)
+        dry_run_summary(validated_links_data, views_count_per_link, actual_num_connections, tor_ports_to_use)
+        if pytor and managed_tor_instances_details: pytor.cleanup_tor_instances(managed_tor_instances_details)
+        print(f"\\n{C_GREEN}{EMOJI_DRY_RUN} Dry run concluded. Exiting KADDU YT-VIEWS.{C_END}")
         sys.exit(0)
 
-    print(f"\n{C_HEADER}{EMOJI_ROCKET} STARTING VIEW GENERATION {EMOJI_ROCKET}{C_END}")
-    results = []
-    total_success_sync, total_failure_sync = create_and_run_threads(
-        validated_links, views_per_target_link, num_parallel_connections, available_ports, results
-    )
-    print(f"\n{C_OKBLUE}--- FINAL SUMMARY ---")
-    print(f"{C_OKGREEN}{EMOJI_SUCCESS} Total successful views: {total_success_sync}")
-    print(f"{C_FAIL}{EMOJI_ERROR} Total failed attempts: {total_failure_sync}{C_END}")
-    print(f"{C_OKBLUE}--------------------{C_END}")
-    print(f"{C_HEADER}{EMOJI_THANKS} Thanks for using KADDU YT-VIEWS! {EMOJI_STAR}{C_END}")
-    print(f"{C_YELLOW}Consider starring the project on GitHub: {GITHUB_LINK}{C_END}")
-    pytor.cleanup_tor_instances(tor_instances)
+    print(f"\\n{C_HEADER}{EMOJI_ROCKET} --- PREPARING FOR ACTUAL VIEW GENERATION --- {EMOJI_ROCKET}{C_END}")
+    estimate_total_time(validated_links_data, views_count_per_link, actual_num_connections)
+    
+    if not get_user_confirmation_to_proceed():
+        if pytor and managed_tor_instances_details: pytor.cleanup_tor_instances(managed_tor_instances_details)
+        print(f"{C_CYAN}Operation cancelled by user. Exiting KADDU YT-VIEWS.{C_END}")
+        sys.exit(0)
 
-# Define GITHUB_LINK and TIP_TEXT (used in main)
-GITHUB_LINK = "https://github.com/Kaddu-Hacker/InfiniteYtViews"
-TIP_TEXT = f"{C_BLUE}{EMOJI_INFO} Tip: {C_BOLD}Always run this script in a Python virtual environment (venv){C_END} to avoid system-wide package conflicts and ensure correct dependency versions. See 'help' for more."
+    # 7. Create and Run Viewing Threads
+    overall_completed_views_total = 0 
+    overall_failed_attempts_total = 0
+    stop_event_global.clear()
 
-# --- GLOBAL LOCK FOR THREADING (for completed_views_total, etc.) ---
-completed_views_lock = threading.Lock()
+    create_and_run_threads(validated_links_data, views_count_per_link, actual_num_connections, tor_ports_to_use)
 
+    # 8. FINAL SUMMARY
+    print(f"\\n{C_HEADER}{EMOJI_BANNER} --- KADDU YT-VIEWS FINAL SUMMARY --- {EMOJI_BANNER}{C_END}")
+    print(f"{C_OKGREEN}{EMOJI_SUCCESS} Total successful views recorded: {overall_completed_views_total}{C_END}")
+    print(f"{C_FAIL}{EMOJI_ERROR} Total failed view attempts recorded: {overall_failed_attempts_total}{C_END}")
+    total_tasks_processed_or_attempted = overall_completed_views_total + overall_failed_attempts_total
+    target_total_views = len(validated_links_data) * views_count_per_link
+    if target_total_views > 0 :
+        success_rate = (overall_completed_views_total / target_total_views) * 100 if target_total_views > 0 else 0
+        print(f"{C_CYAN}{EMOJI_INFO} Original target views: {target_total_views}. Overall success rate: {success_rate:.2f}%{C_END}")
+    if total_tasks_processed_or_attempted == 0 and target_total_views > 0:
+        print(f"{C_YELLOW}{EMOJI_WARNING} No view attempts recorded. Check logs.{C_END}")
+    elif total_tasks_processed_or_attempted == 0 and target_total_views == 0:
+         print(f"{C_YELLOW}{EMOJI_INFO} No views targeted or processed.{C_END}")
+
+    # 9. Cleanup Managed Tor Instances
+    print(f"\\n{C_BLUE}{EMOJI_GEAR} Cleaning up managed Tor instances...{C_END}")
+    if pytor and managed_tor_instances_details:
+        pytor.cleanup_tor_instances(managed_tor_instances_details)
+        print(f"{C_GREEN}{EMOJI_SUCCESS} Managed Tor instances cleanup initiated.{C_END}")
+    elif not managed_tor_instances_details:
+        print(f"{C_CYAN}{EMOJI_INFO} No user-space Tor instances started by this script.{C_END}")
+    else:
+        print(f"{C_WARNING}{EMOJI_WARNING} Pytor unavailable, cannot clean Tor instances: {managed_tor_instances_details}{C_END}")
+
+    print(f"\\n{C_HEADER}{EMOJI_THANKS} Thanks for using KADDU YT-VIEWS! {EMOJI_STAR}{C_END}")
+    print(f"{C_YELLOW}Consider starring: https://github.com/Kaddu-Hacker/InfiniteYtViews{C_END}")
+    print(f"{C_CYAN}{EMOJI_INFO} [Infotainment] {get_random_infotainment()}{C_END}")
+
+    # --- TASK.md and Changelog update logic ---
+    def mark_task_completed(task_desc):
+        """Mark the current task as completed in TASK.md and log in Changelog if those files exist."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        # Update TASK.md
+        if os.path.exists("TASK.md"):
+            with open("TASK.md", "a", encoding="utf-8") as f:
+                f.write(f"\n- [x] {task_desc} (completed {today})\n")
+        # Update Changelog
+        if os.path.exists("Changelog"):
+            with open("Changelog", "a", encoding="utf-8") as f:
+                f.write(f"\n[{today}] {task_desc} completed and script finalized.\n")
+
+    mark_task_completed("Finalize, robustify, and automate main.py for user-friendly, non-manual operation")
+
+
+# --- MAIN EXECUTION BLOCK ---
 if __name__ == "__main__":
-    # The prioritized setup checks (require_venv, check_root, dependencies, Tor) 
-    # are now executed globally when the script is parsed.
-    # So, when __main__ is entered, those are already done.
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\\n\\n{C_WARNING}{EMOJI_WARNING} Keyboard interrupt! Signaling stop...{C_END}")
+        stop_event_global.set()
+        print(f"{C_BLUE}Please wait for graceful shutdown...{C_END}")
+        time.sleep(5) 
+    except SystemExit as e:
+        if e.code != 0:
+            print(f"{C_FAIL}{EMOJI_FAIL} Script exited (Code: {e.code}).{C_END}")
+    except Exception as e_critical:
+        print(f"\\n{C_FAIL}{EMOJI_ERROR}{C_BOLD} --- CRITICAL UNEXPECTED ERROR --- {C_END}")
+        print(f"{C_FAIL}Type: {type(e_critical).__name__}, Details: {e_critical}{C_END}")
+        import traceback
+        print(f"{C_GRAY}--- Traceback --- \\n{traceback.format_exc()}--- End Traceback ---{C_END}")
+        print(f"{C_CYAN}Report this issue on GitHub with the traceback.{C_END}")
+    finally:
+        print(C_END) 
+        print(f"{C_BLUE}{EMOJI_INFO} KADDU YT-VIEWS program finished.{C_END}")
+
+# Make sure re is imported if used for video ID extraction (added to main)
+import re
