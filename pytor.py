@@ -9,386 +9,438 @@ import random
 import re
 import socket
 import requests
+import tempfile
+import shutil
+import signal
+
+# --- GLOBAL EMOJIS AND COLORS (Used by functions in this file) ---
+EMOJI_SUCCESS = "✅"
+EMOJI_WARNING = "⚠️"
+EMOJI_ERROR = "❌"
+EMOJI_INFO = "ℹ️"
+EMOJI_WAIT = "⏳"
+EMOJI_DETECT = "🔎"
+EMOJI_START_UP = "🚀"
+EMOJI_CHECK = "✔️"
+EMOJI_NETWORK = "🌐"
+EMOJI_RELOAD = "🔄"
+
+C_GREEN = "\033[1;32m"
+C_YELLOW = "\033[1;33m"
+C_RED = "\033[1;31m"
+C_BLUE = "\033[1;34m"
+C_RESET = "\033[0m"
+# --- END GLOBAL EMOJIS AND COLORS ---
+
+# --- Default Tor SOCKS and Control Ports ---
+DEFAULT_TOR_PORT = 9050
+DEFAULT_CONTROL_PORT = 9051 # Though not explicitly used for control in new instances yet
+
+# --- INFOTAINMENT SYSTEM ---
+INFOTAINMENT_MESSAGES = [
+    "Did you know? The first Tor onion service was launched in 2004!",
+    "Fun Fact: Tor bounces your traffic through at least 3 relays for privacy.",
+    "Motivation: Every new IP is a new opportunity!",
+    "Joke: Why did the onion cry? Because it was peeled by Tor!",
+    "Tip: Stay curious—explore the world of privacy tech!",
+    "Quote: 'Privacy is not an option, and it shouldn't be the price we accept for just getting on the Internet.'",
+    "Trivia: The Tor logo is an onion because of its layered encryption!",
+    "Encouragement: You're making the internet a more private place!",
+    "Did you know? Tor is used by millions of people every day!",
+    "Fun Fact: The Tor network is run by volunteers worldwide!"
+]
+
+def print_infotainment():
+    msg = random.choice(INFOTAINMENT_MESSAGES)
+    print(f"{C_YELLOW}{EMOJI_INFO} [Infotainment] {msg}{C_RESET}")
 
 # --------------------------------------------------------------------------
-# Tor and IP Management Utilities
-# This file contains functions for managing Tor connections,
-# checking and installing dependencies, changing IP addresses,
-# and fetching IP location information.
+# Helper Utilities
 # --------------------------------------------------------------------------
 
-def install_dependencies():
+def is_command_available(command):
+    """Checks if a command is available in the system's PATH."""
+    return shutil.which(command) is not None
+
+def ensure_tor_binary():
     """
-    Installs Tor and curl based on the Linux distribution.
-    This function is typically called by check_dependencies if they are missing.
-    It includes specific commands for Debian/Ubuntu, Fedora/CentOS/Red Hat, and Arch Linux.
-    If the distribution is unsupported, it prints an error and exits.
+    Checks if the 'tor' binary is available. Exits if not found.
+    This is critical before attempting to start new Tor instances.
     """
-    try:
-        distro = subprocess.check_output("lsb_release -d", shell=True).decode().strip()
-        if "Ubuntu" in distro or "Debian" in distro:
-            print("\033[33mUpdating package lists and installing curl and tor for Debian/Ubuntu...\033[0m")
-            subprocess.run(["apt-get", "update"], check=True)
-            subprocess.run(["apt-get", "install", "-y", "curl", "tor"], check=True)
-        elif "Fedora" in distro or "CentOS" in distro or "Red Hat" in distro:
-            print("\033[33mInstalling curl and tor for Fedora/CentOS/RHEL...\033[0m")
-            subprocess.run(["yum", "install", "-y", "curl", "tor"], check=True)
-        elif "Arch" in distro:
-            print("\033[33mInstalling curl and tor for Arch Linux...\033[0m")
-            subprocess.run(["pacman", "-S", "--noconfirm", "curl", "tor"], check=True)
-        else:
-            print("\033[1;31mERROR:\033[0m Unsupported distribution!")
-            print("\033[1;33m***************************************")
-            print("* Supported distributions:            *")
-            print("***************************************")
-            print("• Ubuntu")
-            print("• Debian")
-            print("• Fedora")
-            print("• CentOS")
-            print("• Red Hat")
-            print("• Arch")
-            print("***************************************\033[0m")
-            sys.exit(1)
-        print("\033[1;32m✅ Dependencies (curl, tor) installed successfully.\033[0m")
-    except Exception as e:
-        print(f"\033[1;31mERROR:\033[0m Failed installing dependencies: {e}")
+    print_infotainment()
+    print(f"{C_BLUE}{EMOJI_DETECT} Checking for Tor binary...{C_RESET}")
+    if not is_command_available("tor"):
+        print(f"{C_RED}{EMOJI_ERROR} CRITICAL: 'tor' command not found in PATH.{C_RESET}")
+        print(f"{C_YELLOW}{EMOJI_INFO} Please install Tor (e.g., 'sudo apt install tor').{C_RESET}")
+        print(f"{C_YELLOW}{EMOJI_INFO} This script needs the 'tor' executable to manage dynamic Tor instances.{C_RESET}")
         sys.exit(1)
+    print(f"{C_GREEN}{EMOJI_SUCCESS} 'tor' binary found.{C_RESET}")
 
-
-def check_dependencies():
-    """
-    Checks if curl and Tor are installed on the system.
-    If they are not found, it calls install_dependencies() to install them.
-    Uses subprocess.check_call to verify their presence.
-    """
-    try:
-        # Check for curl
-        subprocess.check_call(["curl", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Check for Tor
-        subprocess.check_call(["tor", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("\033[1;32m✅ Dependencies (curl, tor) are installed.\033[0m")
-    except subprocess.CalledProcessError:
-        print("\033[33m⚠️ curl and/or tor not found. Attempting to install...\033[0m")
-        install_dependencies()
-    except FileNotFoundError: # Handles cases where the command itself isn't found
-        print("\033[33m⚠️ curl and/or tor not found (FileNotFound). Attempting to install...\033[0m")
-        install_dependencies()
-
+# --------------------------------------------------------------------------
+# System Tor Service Management (Legacy/Optional)
+# These functions interact with a system-wide Tor service.
+# Their usage might be deprioritized in favor of user-space instances.
+# --------------------------------------------------------------------------
 
 def start_tor():
     """
-    Starts the Tor service using various system-specific methods.
-    It tries systemctl, service, rc-service, and direct pgrep/tor execution.
-    Provides feedback on the status of Tor service activation.
-    If all automated methods fail, it attempts a manual start and advises the user.
+    Starts the SYSTEM Tor service using various system-specific methods.
+    This is for a system-wide Tor, not user-space instances.
     """
-    # Define colors for better UI
-    green = "\033[1;32m"
-    yellow = "\033[1;33m"
-    red = "\033[1;31m"
-    blue = "\033[1;34m"
-    reset = "\033[0m"
-    # Emojis for better visual cues (using standard emoji characters)
-    EMOJI_SUCCESS = "✅"
-    EMOJI_WARNING = "⚠️"
-    EMOJI_ERROR = "❌"
-    EMOJI_INFO = "ℹ️"
-    EMOJI_WAIT = "⏳"
-    EMOJI_DETECT = "🔎"
-    EMOJI_START_UP = "🚀"
-    EMOJI_CHECK = "✔️" # For already running checks
-    
-    print(f"{yellow}{EMOJI_WAIT} Attempting to start Tor service...{reset}")
-    
+    print_infotainment()
+    print(f"{C_YELLOW}{EMOJI_WAIT} Attempting to start SYSTEM Tor service...{C_RESET}")
     methods = [
-        {"check": ["systemctl", "is-active", "--quiet", "tor"], "start": ["systemctl", "start", "tor"], "name": "systemctl"},
-        {"check": ["service", "tor", "status"], "start": ["service", "tor", "start"], "name": "service"},
-        {"check": ["rc-service", "tor", "status"], "start": ["rc-service", "tor", "start"], "name": "rc-service"},
-        {"check": ["pgrep", "tor"], "start": ["tor", "&"], "name": "direct pgrep/tor"} # '&' might be problematic with subprocess.run
+        {"check": ["systemctl", "is-active", "--quiet", "tor"], "start": ["sudo", "systemctl", "start", "tor"], "name": "systemctl"},
+        {"check": ["service", "tor", "status"], "start": ["sudo", "service", "tor", "start"], "name": "service"},
+        {"check": ["rc-service", "tor", "status"], "start": ["sudo", "rc-service", "tor", "start"], "name": "rc-service"},
     ]
-    
-    # Check if Tor is already running via pgrep first, as it's often reliable
     try:
-        pgrep_check = subprocess.run(["pgrep", "-x", "tor"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        pgrep_check = subprocess.run(["pgrep", "-x", "tor"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         if pgrep_check.returncode == 0 and pgrep_check.stdout.strip():
-            print(f"{green}{EMOJI_CHECK} Tor service appears to be already running (detected by pgrep).{reset}")
-            return
+            print(f"{C_GREEN}{EMOJI_CHECK} A Tor process is already running (pgrep). Assuming system service or pre-existing.{C_RESET}")
+            return True # Indicate a Tor process is running
     except FileNotFoundError:
-        print(f"{yellow}{EMOJI_WARNING} pgrep command not found. Unable to perform initial check for running Tor.{reset}")
+        print(f"{C_YELLOW}{EMOJI_WARNING} pgrep not found. Cannot perform initial check for running Tor.{C_RESET}")
 
     for method in methods:
+        if not is_command_available(method["start"][0]): continue # Skip if sudo/service command itself is missing
         try:
-            print(f"{blue}{EMOJI_DETECT} Checking Tor status using '{method['name']}'...{reset}")
-            if method["name"] == "direct pgrep/tor": 
-                 check_result = subprocess.run(method["check"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            else:
-                 check_result = subprocess.run(method["check"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
+            print(f"{C_BLUE}{EMOJI_DETECT} Checking system Tor status via '{method['name']}'...{C_RESET}")
+            check_result = subprocess.run(method["check"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if check_result.returncode == 0:
-                if method["name"] == "direct pgrep/tor" and not check_result.stdout.strip():
-                    pass 
-                else:
-                    print(f"{green}{EMOJI_CHECK} Tor service is already running (detected via {method['name']}).{reset}")
-                    return
+                print(f"{C_GREEN}{EMOJI_CHECK} System Tor service is already running ({method['name']}).{C_RESET}")
+                return True
 
-            print(f"{blue}{EMOJI_START_UP} Attempting to start Tor using '{method['name']}' (command: {' '.join(method['start'])})...{reset}")
-            if method["name"] == "direct pgrep/tor": 
-                subprocess.Popen(["tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                start_result_code = 0 
-            else:
-                start_result = subprocess.run(method["start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-                start_result_code = start_result.returncode
-
-            if start_result_code == 0:
-                print(f"{yellow}{EMOJI_WAIT} Waiting a few moments for Tor to initialize after starting with '{method['name']}'...{reset}")
-                time.sleep(10) 
-                
-                verify_check = subprocess.run(["pgrep", "-x", "tor"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                if verify_check.returncode == 0 and verify_check.stdout.strip():
-                    print(f"{green}{EMOJI_SUCCESS} Tor service started successfully using '{method['name']}'!{reset}")
-                    return
+            print(f"{C_BLUE}{EMOJI_START_UP} Attempting to start system Tor via '{method['name']}'...{C_RESET}")
+            start_result = subprocess.run(method["start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            if start_result.returncode == 0:
+                print(f"{C_YELLOW}{EMOJI_WAIT} Waiting for system Tor to initialize (10s)...{C_RESET}")
+                time.sleep(10)
+                verify_pgrep = subprocess.run(["pgrep", "-x", "tor"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                if verify_pgrep.returncode == 0 and verify_pgrep.stdout.strip():
+                    print(f"{C_GREEN}{EMOJI_SUCCESS} System Tor service started successfully ({method['name']}).{C_RESET}")
+                    return True
                 else:
-                    output_details = f"Output: {start_result.stdout.decode(errors='ignore').strip()} {start_result.stderr.decode(errors='ignore').strip()}".strip()
-                    print(f"{yellow}{EMOJI_WARNING} Tor was asked to start with '{method['name']}', but pgrep verification failed. {output_details}{reset}")
+                    print(f"{C_YELLOW}{EMOJI_WARNING} System Tor asked to start ({method['name']}), but pgrep verification failed.{C_RESET}")
             else:
-                output_details = f"Output: {start_result.stdout.decode(errors='ignore').strip()} {start_result.stderr.decode(errors='ignore').strip()}".strip()
-                print(f"{red}{EMOJI_ERROR} Failed to start Tor with '{method['name']}'. {output_details}{reset}")
-                
+                err_out = start_result.stderr.decode(errors='ignore').strip()
+                print(f"{C_RED}{EMOJI_ERROR} Failed to start system Tor with '{method['name']}'. Error: {err_out if err_out else 'Unknown'}{C_RESET}")
         except (subprocess.SubprocessError, FileNotFoundError) as e:
-            print(f"{yellow}{EMOJI_WARNING} Method '{method['name']}' failed or command not found: {e}{reset}")
-            continue 
-    
-    print(f"{red}{EMOJI_ERROR} CRITICAL: All automated methods to start Tor service failed.{reset}")
-    print(f"{yellow}{EMOJI_INFO} Please ensure Tor is installed correctly and try starting it manually (e.g., 'sudo service tor start' or 'sudo systemctl start tor').{reset}")
+            print(f"{C_YELLOW}{EMOJI_WARNING} Method '{method['name']}' for system Tor failed: {e}{C_RESET}")
+    print(f"{C_RED}{EMOJI_ERROR} All methods to start SYSTEM Tor service failed.{C_RESET}")
+    return False
 
+# --------------------------------------------------------------------------
+# IP Address and Geolocation Utilities
+# --------------------------------------------------------------------------
 
-def get_ip(tor_port=9050):
+def get_ip(tor_port=DEFAULT_TOR_PORT, verbose=True):
     """
-    Fetches the current external IP address through the Tor SOCKS proxy.
-    Tries multiple IP checking services (checkip.amazonaws.com, api.ipify.org, icanhazip.com).
-    Args:
-        tor_port (int): The SOCKS port Tor is listening on. Defaults to 9050.
-    Returns:
-        str: The external IP address, or exits if all services fail.
+    Fetches current external IP via Tor SOCKS proxy. Returns IP string or None.
     """
-    # Emojis (re-using from start_tor or could be defined globally if preferred)
-    EMOJI_SUCCESS = "✅"
-    EMOJI_WARNING = "⚠️"
-    EMOJI_ERROR = "❌"
-    EMOJI_INFO = "ℹ️"
-    EMOJI_WAIT = "⏳"
-    EMOJI_NETWORK = "🌐"
+    urls = ["https://checkip.amazonaws.com", "https://api.ipify.org", "https://icanhazip.com"]
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    proxies = {"http": f"socks5h://127.0.0.1:{tor_port}", "https": f"socks5h://127.0.0.1:{tor_port}"}
+    timeout = 7
 
-    primary_url = "https://checkip.amazonaws.com"
-    secondary_url = "https://api.ipify.org"
-    tertiary_url = "https://icanhazip.com"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"} # Common user agent
-    proxies = {
-        "http": f"socks5h://127.0.0.1:{tor_port}", 
-        "https": f"socks5h://127.0.0.1:{tor_port}"
-    }
-    timeout_seconds = 10
-
-    urls_to_try = [primary_url, secondary_url, tertiary_url]
-    
-    for i, url in enumerate(urls_to_try):
+    for i, url_to_try in enumerate(urls):
         try:
-            print(f"\033[1;34m{EMOJI_WAIT} Fetching IP via Tor (Port: {tor_port}, Service: {url})...\033[0m")
-            response = requests.get(url, headers=headers, proxies=proxies, timeout=timeout_seconds)
-            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+            if verbose: print(f"{C_BLUE}{EMOJI_WAIT} Fetching IP via Tor (Port: {tor_port}, Service: {url_to_try.split('//')[1]})...{C_RESET}", end='\r')
+            response = requests.get(url_to_try, headers=headers, proxies=proxies, timeout=timeout)
+            response.raise_for_status()
             ip_address = response.text.strip()
-            if not re.match(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", ip_address): # Basic IP format validation
-                raise ValueError("Invalid IP address format received.")
-            print(f"\033[1;32m{EMOJI_SUCCESS} Current IP via Tor (Port: {tor_port}):\033[0m {ip_address} ({EMOJI_NETWORK} {url})")
+            if not re.match(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", ip_address):
+                raise ValueError("Invalid IP format")
+            if verbose: 
+                sys.stdout.write(" " * 80 + "\r") # Clear line
+                print(f"{C_GREEN}{EMOJI_SUCCESS} IP via Tor (Port: {tor_port}):{C_RESET} {ip_address} ({EMOJI_NETWORK} {url_to_try.split('//')[1]}){C_RESET}")
             return ip_address
-        except requests.exceptions.RequestException as e:
-            print(f"\033[1;31m{EMOJI_ERROR} Service {url} failed: {e}\033[0m")
-            if i < len(urls_to_try) - 1:
-                print(f"\033[1;33m{EMOJI_WARNING} Switching to next IP service...\033[0m")
-        except ValueError as e:
-            print(f"\033[1;31m{EMOJI_ERROR} Service {url} returned invalid data: {e}\033[0m")
-            if i < len(urls_to_try) - 1:
-                print(f"\033[1;33m{EMOJI_WARNING} Switching to next IP service...\033[0m")
-    
-    print(f"\033[1;31m{EMOJI_ERROR} CRITICAL ERROR: All IP fetching services failed for Tor port {tor_port}. Unable to get current IP.\033[0m")
-    sys.exit(1)
-        
-
-def change_ip():
-    """
-    Changes the Tor IP address by reloading the Tor service.
-    This function assumes a system-wide Tor service managed by systemctl.
-    It waits for a few seconds for the new circuit to establish and then displays the new IP.
-    """
-    EMOJI_SUCCESS = "✅"
-    EMOJI_WARNING = "⚠️"
-    EMOJI_ERROR = "❌"
-    EMOJI_INFO = "ℹ️"
-    EMOJI_WAIT = "⏳"
-    EMOJI_RELOAD = "🔄"
-
-    try:
-        print(f"\n\033[1;33m{EMOJI_RELOAD} Requesting new Tor circuit (reloading Tor service via systemctl)...\033[0m")
-        # Ensure Tor is running before trying to reload
-        # We might need a more robust check here or rely on start_tor() being called prior.
-        subprocess.run(["systemctl", "reload", "tor"], check=True)
-        print(f"\033[1;32m{EMOJI_SUCCESS} Tor reload signal sent successfully.\033[0m")
-        print(f"\033[1;34m{EMOJI_WAIT} Waiting for new IP address to activate (5 seconds)...\033[0m")
-        time.sleep(5) # Wait for Tor to establish a new circuit
-        
-        new_ip = get_ip() # Uses the default port 9050 for the system Tor service
-        if new_ip:
-            show_ip_location(new_ip) # Call show_ip_location if new IP was obtained
-
-    except subprocess.CalledProcessError as e:
-        print(f"\033[1;31m{EMOJI_ERROR} Failed reloading Tor service (systemctl reload tor): {e}\033[0m")
-        print(f"\033[1;33m{EMOJI_INFO} Ensure Tor is running and systemctl is available. This method is for systemd-based Linux.{EMOJI_WARNING}\033[0m")
-    except FileNotFoundError:
-        print(f"\033[1;31m{EMOJI_ERROR} systemctl command not found. Cannot reload Tor using this method.{EMOJI_WARNING}\033[0m")
-
+        except (requests.exceptions.RequestException, ValueError) as e:
+            if verbose and not any(isinstance(e, err_type) for err_type in [requests.exceptions.ConnectTimeout, requests.exceptions.ProxyError, requests.exceptions.ConnectionError]):
+                sys.stdout.write(" " * 80 + "\r")
+                print(f"{C_YELLOW}{EMOJI_WARNING} Service {url_to_try.split('//')[1]} (Port {tor_port}) failed: {type(e).__name__}{C_RESET}")
+            if isinstance(e, (requests.exceptions.ProxyError, requests.exceptions.ConnectionError)):
+                return None # Port likely inactive
+    if verbose: 
+        sys.stdout.write(" " * 80 + "\r")
+        print(f"{C_RED}{EMOJI_ERROR} All IP services failed for Tor port {tor_port}.{C_RESET}")
+    return None
 
 def show_ip_location(ip_address):
     """
-    Fetches and displays geolocation information for a given IP address.
-    Tries multiple geolocation API services (ipapi.co, ip-api.com, ipwhois.app).
-    Args:
-        ip_address (str): The IP address to geolocate.
+    Fetches and displays geolocation for an IP address.
     """
-    EMOJI_SUCCESS = "✅"
-    EMOJI_WARNING = "⚠️"
-    EMOJI_ERROR = "❌"
-    EMOJI_INFO = "ℹ️"
-    EMOJI_LOCATION_PIN = "📍"
-    EMOJI_GLOBE = "🌍"
-
-    if not ip_address:
-        print(f"\033[1;31m{EMOJI_ERROR} No IP address provided to geolocate.\033[0m")
-        return
-
-    print(f"\033[1;34m{EMOJI_GLOBE} Fetching geolocation for IP: {ip_address}...\033[0m")
-    api_services = [
-        (f"https://ipapi.co/{ip_address}/json/", ["city", "region", "country_name"], "ipapi.co"),
-        (f"http://ip-api.com/json/{ip_address}", ["city", "regionName", "country"], "ip-api.com"),
-        (f"https://ipwhois.app/json/{ip_address}", ["city", "region", "country"], "ipwhois.app"),
-    ]
-    
-    random.shuffle(api_services) # Randomize to distribute load and avoid rate limits
-
-    for url, fields, service_name in api_services:
-        try:
-            response = requests.get(url, timeout=random.randint(8, 15)) # Randomized timeout
-            response.raise_for_status()
-            data = response.json()
-            
-            city = data.get(fields[0], 'N/A')
-            region = data.get(fields[1], 'N/A')
-            country = data.get(fields[2], 'N/A')
-
-            print(f"\033[1;32m{EMOJI_LOCATION_PIN} Location details from {service_name} ({EMOJI_SUCCESS}):\033[0m")
-            print(f"  {EMOJI_INFO} City: \033[96m{city}\033[0m")
-            print(f"  {EMOJI_INFO} Region: \033[96m{region}\033[0m")
-            print(f"  {EMOJI_INFO} Country: \033[96m{country}\033[0m")
-            return # Success, no need to try other services
-        except requests.exceptions.RequestException as e:
-            print(f"\033[1;31m{EMOJI_ERROR} Geolocation service {service_name} ({url}) failed: {e}\033[0m")
-        except ValueError: # Handles JSON decoding errors
-            print(f"\033[1;31m{EMOJI_ERROR} Geolocation service {service_name} ({url}) returned invalid JSON.{EMOJI_WARNING}\033[0m")
-            
-    print(f"\033[1;31m{EMOJI_ERROR} All geolocation services failed for IP {ip_address}.{EMOJI_WARNING}\033[0m")
-    
-
-def change_ip_loop():
-    """
-    Interactive loop to repeatedly change Tor IP at user-defined intervals and counts.
-    This is a utility function for users who want to cycle their system Tor IP.
-    """
+    if not ip_address: print(f"{C_YELLOW}{EMOJI_WARNING} No IP to show location.{C_RESET}"); return
+    print(f"{C_BLUE}{EMOJI_DETECT} Geolocation for IP: {ip_address}...{C_RESET}")
     try:
-        print("\n\033[1;35m--- IP Address Cycler (System Tor) ---")
-        while True:
-            interval_str = input("\033[1;36mEnter time interval in seconds (e.g., 60, or 0 for random 10-20s default): \033[0m").strip()
-            times_str = input("\033[1;36mEnter how many times to change IP (e.g., 5, or 0 for infinite): \033[0m").strip()
-            print("\n\033[1;35mPress CTRL + C to quit this loop at any time.\033[0m")
-            
-            if not interval_str.isdigit() or not times_str.isdigit():
-                print("\n\033[1;31mERROR:\033[0m Please enter valid numbers for interval and count.")
-                continue
+        response = requests.get(f"https://ipinfo.io/{ip_address}/json", timeout=10)
+        response.raise_for_status(); data = response.json()
+        print(f"{C_GREEN}{EMOJI_NETWORK} IP Geolocation:{C_RESET} City: {data.get('city', 'N/A')}, Region: {data.get('region', 'N/A')}, Country: {data.get('country', 'N/A')}, ISP: {data.get('org', 'N/A')}")
+    except (requests.exceptions.RequestException, ValueError) as e:
+        print(f"{C_RED}{EMOJI_ERROR} Could not fetch/parse geolocation: {e}{C_RESET}")
 
-            interval = int(interval_str)
-            times_to_change = int(times_str)
-            
-            is_infinite_changes = (times_to_change == 0)
-            is_random_interval = (interval == 0)
+# --------------------------------------------------------------------------
+# User-Space Tor Instance Management (NEW as per guide)
+# --------------------------------------------------------------------------
 
-            if is_infinite_changes:
-                print("\n\033[33m🚀 Starting infinite IP changes...\033[0m")
-            else:
-                print(f"\n\033[33m🚀 Starting IP changes ({times_to_change} times)...\033[0m")
+def detect_tor_ports(start_port=9050, end_port=9100, verbose_scan=False):
+    """
+    Identifies active Tor SOCKS ports by attempting to fetch an IP through them.
+    """
+    print_infotainment()
+    available_ports = []
+    print(f"{C_BLUE}{EMOJI_DETECT} Scanning for existing Tor SOCKS ports ({start_port}-{end_port})...{C_RESET}")
+    for port in range(start_port, end_port + 1):
+        current_ip = get_ip(port, verbose=verbose_scan)
+        if current_ip:
+            print(f"{C_GREEN}{EMOJI_SUCCESS} Active Tor SOCKS port detected: {port} (IP: {current_ip}){C_RESET}")
+            available_ports.append(port)
+        elif not verbose_scan: print(f".", end='', flush=True)
+    if not verbose_scan: print() # Newline after dots
+    if not available_ports: print(f"{C_YELLOW}{EMOJI_WARNING} No active Tor SOCKS ports found in range {start_port}-{end_port}.{C_RESET}")
+    else: print(f"{C_GREEN}{EMOJI_SUCCESS} Detection complete. Active ports: {available_ports}{C_RESET}")
+    return available_ports
 
-            current_change_count = 0
-            while is_infinite_changes or current_change_count < times_to_change:
-                if not is_infinite_changes:
-                    print(f"\n--- Change {current_change_count + 1} of {times_to_change} ---")
-                else:
-                    print(f"\n--- Change {current_change_count + 1} ---")
+def find_free_ports(num_ports_needed, start_search_port=9101):
+    """
+    Finds a specified number of free TCP ports for new Tor instances.
+    """
+    print_infotainment()
+    free_ports_found = []
+    current_port = start_search_port
+    max_search_range = 100 # Limit search to 100 ports beyond start_search_port
+    end_search_port = start_search_port + max_search_range
+    print(f"{C_BLUE}{EMOJI_DETECT} Searching for {num_ports_needed} free port(s) from {start_search_port} to {end_search_port-1}...{C_RESET}")
+    
+    temp_socket = None
+    while len(free_ports_found) < num_ports_needed and current_port < end_search_port:
+        try:
+            temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            temp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            temp_socket.bind(("127.0.0.1", current_port))
+            free_ports_found.append(current_port)
+            # print(f"{C_GREEN}{EMOJI_CHECK} Port {current_port} is free.{C_RESET}") # Optional: too verbose
+        except (OSError, PermissionError):
+            pass # Port in use or other issue
+        finally:
+            if temp_socket: temp_socket.close()
+        current_port += 1
+    
+    if len(free_ports_found) < num_ports_needed:
+        print(f"{C_RED}{EMOJI_ERROR} Could not find {num_ports_needed} free port(s) in range {start_search_port}-{end_search_port-1}. Found: {free_ports_found}{C_RESET}")
+    else:
+        print(f"{C_GREEN}{EMOJI_SUCCESS} Found {len(free_ports_found)} free port(s): {free_ports_found}{C_RESET}")
+    return free_ports_found
 
-                change_ip() # This will attempt to change IP and show location
-
-                current_change_count += 1
-                if not is_infinite_changes and current_change_count >= times_to_change:
-                    break # Exit loop if count reached
-
-                sleep_duration = random.randint(10, 20) if is_random_interval else interval
-                if sleep_duration <=0 : # Ensure positive sleep
-                    sleep_duration = random.randint(10,20)
-                    print(f"\033[1;33m⚠️ Invalid interval, using random {sleep_duration}s sleep.\033[0m")
-                else:
-                     print(f"\033[1;34m⏳ Sleeping for {sleep_duration} seconds...\033[0m")
-                time.sleep(sleep_duration)
-            
-            print("\033[1;32m✅ IP changing loop finished.\033[0m")
-            break # Exit the outer while True loop after finishing a cycle
-
-    except KeyboardInterrupt:
-        print("\n\033[1;33m⏹️ IP Cycler interrupted by user. Exiting IP loop...\033[0m")
+def start_tor_instance(port):
+    """
+    Starts a new Tor instance on a specified port with its own data directory.
+    """
+    print_infotainment()
+    try:
+        data_dir = tempfile.mkdtemp(prefix=f"kaddu_tor_{port}_")
     except Exception as e:
-        print(f"\n\033[1;31mERROR in IP Cycler: {e}\033[0m")
+        print(f"{C_RED}{EMOJI_ERROR} Failed to create temp data_dir for Tor port {port}: {e}{C_RESET}")
+        return None
 
+    pid_file = os.path.join(data_dir, "tor.pid")
+    log_file = os.path.join(data_dir, "tor_messages.log")
+    cmd = [
+        "tor", "--SocksPort", str(port),
+        "--DataDirectory", data_dir, "--PidFile", pid_file,
+        "--Log", f"notice file {log_file}", "--CookieAuthentication", "0",
+        # Essential for user-space instances to avoid conflicting with system Tor or other instances:
+        "--ControlPort", "auto", # Let Tor pick a control port
+        "--AvoidDiskWrites", "1", # Good for temp instances
+        "--ShutdownWaitLength", "0", # Faster shutdown
+        # "--quiet" # Might suppress useful errors during startup; log file should capture anyway
+    ]
+    try:
+        log_fp = open(log_file, "a")
+        process = subprocess.Popen(cmd, stdout=log_fp, stderr=subprocess.STDOUT)
+        print(f"{C_BLUE}{EMOJI_START_UP} Starting Tor instance: Port {port}, PID {process.pid}, DataDir {data_dir}{C_RESET}")
+        return {"port": port, "process": process, "data_dir": data_dir, "pid_file": pid_file, "log_file": log_file, "log_fp": log_fp}
+    except FileNotFoundError:
+        print(f"{C_RED}{EMOJI_ERROR} 'tor' command not found. Cannot start new Tor instance.{C_RESET}")
+        if os.path.exists(data_dir): shutil.rmtree(data_dir)
+        return None
+    except Exception as e:
+        print(f"{C_RED}{EMOJI_ERROR} Failed to start Tor instance on port {port}: {e}{C_RESET}")
+        if 'log_fp' in locals() and log_fp: log_fp.close()
+        if os.path.exists(data_dir): shutil.rmtree(data_dir)
+        return None
 
-def rotate_ip_and_show_location():
+def verify_tor_instance(instance_info, timeout=90):
     """
-    A utility function that combines changing the Tor IP and showing its new location.
-    This is primarily for the system-wide Tor instance.
+    Verifies if a Tor instance is bootstrapped and operational.
     """
-    print("\n\033[1;35m--- Rotating System Tor IP and Showing Location ---")
-    # This function implicitly uses the system 'tor' service and its default port for get_ip
-    ip = change_ip()
-    if ip:
-        show_ip_location(ip)
+    print_infotainment()
+    if not instance_info: return False
+    start_time = time.time(); log_file = instance_info["log_file"]; port = instance_info["port"]; process = instance_info["process"]
+    print(f"{C_YELLOW}{EMOJI_WAIT} Verifying Tor instance (Port {port}, PID {process.pid}). Bootstrap (max {timeout}s)...{C_RESET}")
+    bootstrapped_log_msg = "Bootstrapped 100% (done)"
+    bootstrapped = False
+    while time.time() - start_time < timeout:
+        if process.poll() is not None:
+            print(f"{C_RED}{EMOJI_ERROR} Tor (Port {port}, PID {process.pid}) terminated. Code: {process.returncode}{C_RESET}")
+            try:
+                with open(log_file, "r") as f_log: log_tail = f_log.read()
+                if log_tail.strip(): print(f"{C_YELLOW}  Log ({log_file}):\n{log_tail[-500:]}{C_RESET}")
+            except Exception: pass
+            return False
+        try:
+            with open(log_file, "r") as f:
+                if bootstrapped_log_msg in f.read():
+                    print(f"{C_GREEN}{EMOJI_CHECK} Tor (Port {port}) bootstrapped. Verifying IP...{C_RESET}")
+                    bootstrapped = True; break
+        except Exception: pass # File might not exist yet or read error
+        time.sleep(2)
+    if not bootstrapped:
+        print(f"{C_RED}{EMOJI_ERROR} Tor (Port {port}, PID {process.pid}) did NOT bootstrap in {timeout}s.{C_RESET}")
+        if process.poll() is None: print(f"{C_YELLOW}  Process still running. Check logs in {instance_info['data_dir']}{C_RESET}")
+        return False
+    if get_ip(port, verbose=True):
+        print(f"{C_GREEN}{EMOJI_SUCCESS} Tor instance (Port {port}) operational.{C_RESET}")
+        return True
+    else:
+        print(f"{C_RED}{EMOJI_ERROR} Tor (Port {port}) bootstrapped, but FAILED to fetch IP.{C_RESET}")
+        return False
 
+def change_ip(instance_info):
+    """
+    Changes IP for a specific Tor instance via SIGHUP.
+    """
+    if not instance_info or not all(k in instance_info for k in ["pid_file", "port", "process"]):
+        print(f"{C_RED}{EMOJI_ERROR} Invalid instance_info to change_ip.{C_RESET}"); return None
+    pid_file = instance_info["pid_file"]; port = instance_info["port"]; process_obj = instance_info["process"]
+    print(f"{C_YELLOW}{EMOJI_RELOAD} Requesting new circuit for Tor instance (Port {port})...{C_RESET}")
+    pid_to_signal = process_obj.pid if process_obj and process_obj.poll() is None else None
+    if not pid_to_signal and os.path.exists(pid_file):
+        try:
+            with open(pid_file, "r") as f: pid_to_signal = int(f.read().strip())
+        except Exception: pass
+    if not pid_to_signal or pid_to_signal <= 0:
+        print(f"{C_RED}{EMOJI_ERROR} Cannot get PID for Tor (Port {port}).{C_RESET}"); return None
+    try:
+        os.kill(pid_to_signal, signal.SIGHUP)
+        print(f"{C_GREEN}{EMOJI_SUCCESS} SIGHUP sent to Tor (Port {port}, PID {pid_to_signal}). Waiting for new IP (5-10s)...{C_RESET}")
+        time.sleep(random.randint(5, 10))
+        new_ip = get_ip(port, verbose=True)
+        if new_ip: print(f"{C_GREEN}{EMOJI_SUCCESS} New IP (Port {port}): {new_ip}{C_RESET}"); return new_ip
+        else: print(f"{C_RED}{EMOJI_ERROR} Failed to get new IP (Port {port}) after SIGHUP.{C_RESET}"); return None
+    except ProcessLookupError:
+        print(f"{C_RED}{EMOJI_ERROR} Tor process (PID {pid_to_signal}, Port {port}) not found (crashed?).{C_RESET}"); return None
+    except Exception as e:
+        print(f"{C_RED}{EMOJI_ERROR} Failed SIGHUP/get new IP (Port {port}, PID {pid_to_signal}): {e}{C_RESET}"); return None
 
-if __name__ == '__main__':
-    # Example usage for testing pytor.py functions directly
-    print("\033[1;35mTesting PyTor Utilities...\033[0m")
+def cleanup_tor_instances(instances_info_list):
+    """
+    Terminates managed Tor instances and removes their data directories.
+    """
+    print_infotainment()
+    if not instances_info_list: print(f"{C_BLUE}{EMOJI_INFO} No managed Tor instances to clean up.{C_RESET}"); return
+    print(f"{C_BLUE}{EMOJI_WAIT} Cleaning up {len(instances_info_list)} managed Tor instance(s)...{C_RESET}")
+    for info in reversed(instances_info_list): # Cleanup in reverse order of creation
+        port = info.get("port", "N/A"); process = info.get("process"); data_dir = info.get("data_dir"); log_fp = info.get("log_fp")
+        if process and process.poll() is None: # Check if process is running
+            print(f"{C_YELLOW}{EMOJI_WAIT} Stopping Tor instance (Port {port}, PID {process.pid})...{C_RESET}")
+            try:
+                process.terminate(); process.wait(timeout=5)
+                print(f"{C_GREEN}{EMOJI_SUCCESS} Tor (Port {port}) terminated gracefully.{C_RESET}")
+            except subprocess.TimeoutExpired:
+                print(f"{C_YELLOW}{EMOJI_WARNING} Tor (Port {port}) timeout. Killing...{C_RESET}")
+                process.kill(); process.wait(timeout=2)
+                print(f"{C_GREEN}{EMOJI_SUCCESS} Tor (Port {port}) killed.{C_RESET}")
+            except Exception as e:
+                print(f"{C_RED}{EMOJI_ERROR} Failed to stop Tor (Port {port}): {e}{C_RESET}")
+        if log_fp: 
+            try: log_fp.close()
+            except Exception: pass
+        if data_dir and os.path.exists(data_dir):
+            print(f"{C_YELLOW}{EMOJI_WAIT} Removing data_dir '{data_dir}' (Port {port})...{C_RESET}")
+            try:
+                shutil.rmtree(data_dir)
+                print(f"{C_GREEN}{EMOJI_SUCCESS} Removed data_dir for Port {port}.{C_RESET}")
+            except Exception as e:
+                print(f"{C_RED}{EMOJI_ERROR} Failed to remove data_dir '{data_dir}': {e}{C_RESET}")
+    print(f"{C_GREEN}{EMOJI_SUCCESS} Tor instance cleanup complete.{C_RESET}")
+
+# --------------------------------------------------------------------------
+# Legacy functions (may need review/removal if fully replaced)
+# --------------------------------------------------------------------------
+
+def change_ip_loop(): # System-wide Tor specific
+    print(f"{C_YELLOW}{EMOJI_WARNING} 'change_ip_loop' is for system-wide Tor. May not work with dynamic instances.{C_RESET}")
+    def original_change_ip_system_tor():
+        try:
+            print(f"{C_YELLOW}{EMOJI_RELOAD} Requesting new circuit (reloading SYSTEM Tor via systemctl)...{C_RESET}")
+            subprocess.run(["sudo", "systemctl", "reload", "tor"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"{C_GREEN}{EMOJI_SUCCESS} Tor reload signal sent.{C_RESET}")
+            print(f"{C_BLUE}{EMOJI_WAIT} Waiting for new IP (5s)...{C_RESET}"); time.sleep(5)
+            new_ip = get_ip(DEFAULT_TOR_PORT, verbose=True)
+            if new_ip: show_ip_location(new_ip)
+        except Exception as e: print(f"{C_RED}{EMOJI_ERROR} Failed system Tor reload: {e}{C_RESET}")
+    try:
+        while True: original_change_ip_system_tor(); print(f"{C_BLUE}{EMOJI_INFO} IP change in 60s. Ctrl+C to stop.{C_RESET}"); time.sleep(60)
+    except KeyboardInterrupt: print(f"{C_GREEN}{EMOJI_SUCCESS} IP loop stopped.{C_RESET}")
+
+def rotate_ip_and_show_location(instance_info_or_system_port=None):
+    new_ip = None
+    if isinstance(instance_info_or_system_port, dict):
+        new_ip = change_ip(instance_info_or_system_port)
+    elif isinstance(instance_info_or_system_port, int) or instance_info_or_system_port is None:
+        port = instance_info_or_system_port if isinstance(instance_info_or_system_port, int) else DEFAULT_TOR_PORT
+        print(f"{C_YELLOW}{EMOJI_INFO} Rotating IP for system Tor (Port {port})...{C_RESET}")
+        try:
+            subprocess.run(["sudo", "systemctl", "reload", "tor"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"{C_GREEN}{EMOJI_SUCCESS} System Tor reload signal sent. Waiting for new IP (Port {port}, 5-10s)...{C_RESET}"); time.sleep(random.randint(5,10))
+            new_ip = get_ip(port, verbose=True)
+            if new_ip: print(f"{C_GREEN}{EMOJI_SUCCESS} New system IP (Port {port}): {new_ip}{C_RESET}"); show_ip_location(new_ip)
+            else: print(f"{C_RED}{EMOJI_ERROR} Failed to get new system IP (Port {port}).{C_RESET}")
+        except Exception as e: print(f"{C_RED}{EMOJI_ERROR} Error rotating system Tor IP (Port {port}): {e}{C_RESET}")
+    else: print(f"{C_RED}{EMOJI_ERROR} Invalid arg to rotate_ip_and_show_location.{C_RESET}")
+
+# --- Main execution block for direct testing of pytor.py --- 
+if __name__ == "__main__":
+    print(f"{C_BLUE}--- pytor.py direct execution test ---{C_RESET}")
+    ensure_tor_binary()
+    print(f"{C_YELLOW}Testing Port Detection (9050-9052, verbose scan)...{C_RESET}")
+    active_system_ports = detect_tor_ports(9050, 9052, verbose_scan=True)
+    print(f"Active system ports found: {active_system_ports}")
+
+    print(f"{C_YELLOW}Testing Free Port Finder (need 2, start 9150)...{C_RESET}")
+    free_ports_for_test = find_free_ports(2, start_search_port=9150)
+    if not free_ports_for_test or len(free_ports_for_test) < 2:
+        print(f"{C_RED}Could not find 2 free ports for testing. Aborting further tests.{C_RESET}"); sys.exit(1)
     
-    # This requires root/admin for install_dependencies and start_tor if not already running/installed
-    # On Linux, ensure you run 'sudo python pytor.py' if testing these.
+    managed_instances = []
+    print(f"{C_YELLOW}Testing Tor Instance Creation & Verification (on ports: {free_ports_for_test})...{C_RESET}")
+    for i, port_num in enumerate(free_ports_for_test):
+        print(f"--- Attempting to start Test Instance #{i+1} on Port {port_num} ---")
+        instance = start_tor_instance(port_num)
+        if instance and verify_tor_instance(instance, timeout=100): # Generous timeout for CI/slow systems
+            managed_instances.append(instance)
+            print(f"{C_GREEN}{EMOJI_SUCCESS} Test Instance on port {port_num} is UP.{C_RESET}")
+            print(f"{C_YELLOW}Testing IP Rotation for instance on port {port_num}...{C_RESET}")
+            ip_before = get_ip(instance["port"], verbose=False)
+            print(f"IP before SIGHUP (Port {port_num}): {ip_before if ip_before else 'Failed to get'}")
+            new_ip_instance = change_ip(instance)
+            print(f"IP after SIGHUP (Port {port_num}): {new_ip_instance if new_ip_instance else 'Failed or no change'}")
+            if new_ip_instance and ip_before != new_ip_instance: print(f"{C_GREEN}{EMOJI_SUCCESS} IP change confirmed for Port {port_num}!{C_RESET}")
+            elif new_ip_instance: print(f"{C_YELLOW}{EMOJI_WARNING} IP same after SIGHUP (Port {port_num}). Common if circuit reselection is fast.{C_RESET}")
+            else: print(f"{C_RED}{EMOJI_ERROR} IP change failed for Port {port_num}.{C_RESET}")
+        elif instance: # Started but failed verification
+            print(f"{C_RED}{EMOJI_ERROR} Failed to verify instance on port {port_num}. Cleaning it up.{C_RESET}")
+            cleanup_tor_instances([instance]) # Clean up only the failed instance
+        else: # Failed to start at all
+            print(f"{C_RED}{EMOJI_ERROR} Failed to start instance on port {port_num}.{C_RESET}")
     
-    # print("\n--- Checking Dependencies ---")
-    # check_dependencies() # Checks and installs Tor/curl if needed
+    if not managed_instances: print(f"{C_RED}{EMOJI_ERROR} No test Tor instances were successfully started. Cleanup test skipped for managed instances.{C_RESET}")
+    print(f"{C_YELLOW}Testing Cleanup for {len(managed_instances)} active test instance(s)...{C_RESET}")
+    cleanup_tor_instances(managed_instances)
+    print(f"{C_BLUE}--- pytor.py direct execution test finished ---{C_RESET}")
 
-    # print("\n--- Starting Tor Service ---")
-    # start_tor() # Ensures Tor service is running
-    
-    print("\n--- Getting Initial IP (Port 9050) ---")
-    initial_ip = get_ip(tor_port=9050)
-    if initial_ip:
-        show_ip_location(initial_ip)
-
-    # print("\n--- Rotating IP and Showing Location ---")
-    # rotate_ip_and_show_location() # Changes IP and shows new location
-
-    # print("\n--- Interactive IP Change Loop ---")
-    # print("You can test the interactive IP changer now.")
-    # change_ip_loop()
-    
-    print("\n\033[1;32mPyTor Utilities testing done.\033[0m")
+# Deprecated/Legacy code that might be removed or heavily refactored:
+# install_dependencies() - main.py should handle initial setup
+# check_dependencies() - main.py should handle initial setup
+# The old change_ip() that only reloads system tor might be removed if main logic uses instance-based change_ip.
