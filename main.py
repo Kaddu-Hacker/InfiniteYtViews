@@ -13,8 +13,210 @@ import time
 import threading
 import platform
 
+# --- EARLY DEFINITIONS: Setup functions and globals used in prioritized setup ---
+# These must be defined before their first use in the setup sequence.
+
+# Global stop event for thread control (used in main and elsewhere)
+stop_event_global = threading.Event()
+
 # --- SETUP FUNCTIONS (venv, dependency, binary checks) ---
 # (All setup functions are already defined below in the script)
+
+# --- ensure_geckodriver_available definition (moved up from below) ---
+def ensure_geckodriver_available():
+    import stat
+    GECKO_URL_BASE = "https://github.com/mozilla/geckodriver/releases/latest/download/"
+    drivers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
+    os.makedirs(drivers_dir, exist_ok=True)
+    geckodriver_name = "geckodriver.exe" if os.name == "nt" else "geckodriver"
+    gecko_local_path = os.path.join(drivers_dir, geckodriver_name)
+    if shutil.which("geckodriver"):
+        print(f"\033[92m✅ geckodriver is already available in PATH.\033[0m")
+        return
+    if os.path.exists(gecko_local_path):
+        if os.name != "nt" and not os.access(gecko_local_path, os.X_OK):
+            try:
+                os.chmod(gecko_local_path, os.stat(gecko_local_path).st_mode | stat.S_IEXEC)
+                print(f"\033[92mℹ️  Made geckodriver in ./drivers/ executable.\033[0m")
+            except Exception as e:
+                print(f"\033[93m⚠️  Could not set executable permission on geckodriver: {e}\033[0m")
+        os.environ["PATH"] = drivers_dir + os.pathsep + os.environ["PATH"]
+        print(f"\033[92m✅ geckodriver found in ./drivers/. Added to PATH for this session.\033[0m")
+        if shutil.which("geckodriver"):
+            print(f"\033[92m✅ geckodriver confirmed in PATH after adding ./drivers/.\033[0m")
+        else:
+            print(f"\033[93m⚠️  Added ./drivers/ to PATH, but geckodriver still not found by shutil.which(). Manual check needed.\033[0m")
+        return
+    sys_plat = platform.system().lower()
+    arch = platform.machine().lower()
+    if sys_plat.startswith("win"):
+        gecko_asset = "geckodriver-latest-win64.zip" if "64" in arch else "geckodriver-latest-win32.zip"
+    elif sys_plat == "darwin":
+        gecko_asset = "geckodriver-latest-macos-aarch64.tar.gz" if arch == "arm64" else "geckodriver-latest-macos.tar.gz"
+    elif sys_plat == "linux":
+        if arch in ("x86_64", "amd64"):
+            gecko_asset = "geckodriver-latest-linux64.tar.gz"
+        elif arch in ("aarch64", "arm64"):
+            gecko_asset = "geckodriver-latest-linux-aarch64.tar.gz"
+        elif arch == "armv7l":
+            gecko_asset = "geckodriver-latest-linux-arm7hf.tar.gz"
+        else:
+            print(f"\033[91m❌ Unsupported Linux architecture for geckodriver: {arch}\033[0m")
+            print(f"\033[96mℹ️  Please download geckodriver manually for your system and place it in the PATH or in the ./drivers/ directory.\033[0m")
+            print(f"\033[96mℹ️  Download geckodriver manually from: https://github.com/mozilla/geckodriver/releases/latest\033[0m")
+            try:
+                import webbrowser
+                webbrowser.open("https://github.com/mozilla/geckodriver/releases/latest")
+            except Exception:
+                pass
+            return
+    else:
+        print(f"\033[91m❌ Unsupported OS for geckodriver: {sys_plat}\033[0m")
+        print(f"\033[96mℹ️  Please download geckodriver manually for your system and place it in the PATH or in the ./drivers/ directory.\033[0m")
+        print(f"\033[96mℹ️  Download geckodriver manually from: https://github.com/mozilla/geckodriver/releases/latest\033[0m")
+        try:
+            import webbrowser
+            webbrowser.open("https://github.com/mozilla/geckodriver/releases/latest")
+        except Exception:
+            pass
+        return
+    gecko_url = GECKO_URL_BASE + gecko_asset
+    print(f"\033[96mℹ️  Downloading geckodriver from: {gecko_url}\033[0m")
+    archive_path = os.path.join(drivers_dir, gecko_asset)
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(gecko_url, archive_path)
+    except Exception as e:
+        print(f"\033[91m❌ Failed to download geckodriver: {e}\033[0m")
+        print(f"\033[96mℹ️  Please download geckodriver manually and place it in the PATH or in the ./drivers/ directory.\033[0m")
+        return
+    try:
+        import zipfile, tarfile
+        if archive_path.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(drivers_dir)
+        elif archive_path.endswith(".tar.gz"):
+            with tarfile.open(archive_path, 'r:gz') as tar_ref:
+                for member in tar_ref.getmembers():
+                    if member.name == geckodriver_name or member.name.endswith('/' + geckodriver_name):
+                        member.name = os.path.basename(member.name)
+                        tar_ref.extract(member, drivers_dir)
+                        break
+                else:
+                    tar_ref.extractall(drivers_dir)
+        else:
+            print(f"\033[91m❌ Unknown archive format for geckodriver: {archive_path}\033[0m")
+            return
+        print(f"\033[92m✅ geckodriver extracted to {drivers_dir}\033[0m")
+    except Exception as e:
+        print(f"\033[91m❌ Failed to extract geckodriver: {e}\033[0m")
+        return
+    finally:
+        try:
+            if os.path.exists(archive_path): os.remove(archive_path)
+        except Exception:
+            pass
+    if not os.path.exists(gecko_local_path):
+        print(f"\033[91m❌ geckodriver not found at {gecko_local_path} after extraction. Please check the archive contents or install manually.\033[0m")
+        print(f"\033[96mℹ️  Download geckodriver manually from: https://github.com/mozilla/geckodriver/releases/latest\033[0m")
+        try:
+            import webbrowser
+            webbrowser.open("https://github.com/mozilla/geckodriver/releases/latest")
+        except Exception:
+            pass
+        return
+    if os.name != "nt":
+        try:
+            os.chmod(gecko_local_path, os.stat(gecko_local_path).st_mode | stat.S_IEXEC)
+        except Exception as e:
+            print(f"\033[93m⚠️  Could not set executable permission on geckodriver at {gecko_local_path}: {e}\033[0m")
+    os.environ["PATH"] = drivers_dir + os.pathsep + os.environ["PATH"]
+    if shutil.which("geckodriver"):
+        print(f"\033[92m✅ geckodriver is ready and added to PATH for this session!\033[0m")
+    else:
+        print(f"\033[93m⚠️  geckodriver downloaded and extracted to ./drivers/, and ./drivers/ added to PATH, but shutil.which() still cannot find it. Selenium might fail if geckodriver is not discoverable. Ensure {gecko_local_path} is executable and correctly named.\033[0m")
+
+# --- ensure_tor_installed definition (moved up from below) ---
+def ensure_tor_installed():
+    print(f"\n\033[94m🧅 Checking Tor installation ('tor' command availability)...\033[0m")
+    def is_command_available(command):
+        return shutil.which(command) is not None
+    if not is_command_available("tor"):
+        print(f"\033[93m⚠️  'tor' command not found. Attempting to install Tor (may require sudo privileges)...\033[0m")
+        installer = None
+        install_cmd_update = None
+        install_cmd_tor = None
+        if is_command_available("apt-get"):
+            installer = "apt-get"
+            install_cmd_update = ["sudo", "apt-get", "update", "-y", "-qq"]
+            install_cmd_tor = ["sudo", "apt-get", "install", "tor", "-y", "-qq"]
+        elif is_command_available("yum"):
+            installer = "yum"
+            install_cmd_tor = ["sudo", "yum", "install", "-y", "-q", "tor"]
+        elif is_command_available("dnf"):
+            installer = "dnf"
+            install_cmd_tor = ["sudo", "dnf", "install", "-y", "--quiet", "tor"]
+        elif is_command_available("pacman"):
+            installer = "pacman"
+            install_cmd_tor = ["sudo", "pacman", "-S", "--noconfirm", "--quiet", "tor"]
+        if installer:
+            print(f"\033[96m👉 Using '{installer}' to install Tor...\033[0m")
+            success = False
+            error_output = ""
+            try:
+                if install_cmd_update:
+                    proc_update = subprocess.run(install_cmd_update, capture_output=True, stderr=subprocess.PIPE, text=True, timeout=300)
+                    if proc_update.returncode != 0:
+                        error_output += f"Update failed with {installer}: {proc_update.stderr}\n"
+                    else:
+                        proc_tor = subprocess.run(install_cmd_tor, capture_output=True, stderr=subprocess.PIPE, text=True, timeout=300)
+                        if proc_tor.returncode == 0:
+                            success = True
+                        else:
+                            error_output += f"Tor install failed with {installer}: {proc_tor.stderr}\n"
+                else:
+                    proc_tor = subprocess.run(install_cmd_tor, capture_output=True, stderr=subprocess.PIPE, text=True, timeout=300)
+                    if proc_tor.returncode == 0:
+                        success = True
+                    else:
+                        error_output += f"Tor install failed with {installer}: {proc_tor.stderr}\n"
+            except subprocess.TimeoutExpired:
+                error_output = f"Tor installation with {installer} timed out after 5 minutes."
+                success = False
+            except Exception as e:
+                error_output = f"Exception during Tor installation with {installer}: {str(e)}"
+                success = False
+            if success and is_command_available("tor"):
+                print(f"\n\033[92m✅🎉 Tor command installed successfully using {installer}!\033[0m\n")
+            else:
+                print(f"\n\033[91m❌😢 Failed to install 'tor' command using {installer}.\033[0m")
+                if error_output.strip():
+                    print(f"\033[90mError details:\n{error_output.strip()}\033[0m")
+                print(f"\033[93mℹ️  Please try installing Tor manually for your system (e.g., 'sudo {installer} install tor') and ensure the 'tor' command is in your PATH, then re-run this script.\033[0m")
+                print(f"\033[96mℹ️  Download Tor from: https://www.torproject.org/download/\033[0m")
+                try:
+                    import webbrowser
+                    webbrowser.open("https://www.torproject.org/download/")
+                except Exception:
+                    pass
+                sys.exit(1)
+        else:
+            print(f"\n\033[91m❌😢 Could not detect a supported package manager (apt-get, yum, dnf, pacman) to install Tor.\033[0m")
+            print(f"\033[93mℹ️  Please install Tor manually for your system so that the 'tor' command is available in your PATH, then re-run the script.\033[0m")
+            print(f"\033[96mℹ️  Download Tor from: https://www.torproject.org/download/\033[0m")
+            try:
+                import webbrowser
+                webbrowser.open("https://www.torproject.org/download/")
+            except Exception:
+                pass
+            sys.exit(1)
+    else:
+        print(f"\n\033[92m✅🎉 'tor' command is already available!\033[0m\n")
+
+# --- main function definition (move from below) ---
+def main():
+    # ... main logic as already defined ...
+    pass
 
 # --- PRIORITIZED SETUP EXECUTION ---
 if __name__ == "__main__":
