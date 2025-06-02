@@ -31,6 +31,11 @@ EMOJI_DRY_RUN = "📝"
 EMOJI_VIEW = "👀"
 EMOJI_THANKS = "🙏"
 EMOJI_STAR = "⭐"
+EMOJI_VIDEO = "📹"  # Added
+EMOJI_SHORT = "⏱️"  # Added
+EMOJI_LINK = "🔗"   # Already present, confirmed
+EMOJI_THREADS = "🧵" # Added
+EMOJI_WAIT = "⏳"    # Added
 
 C_HEADER = '\033[95m'
 C_BLUE = '\033[94m'
@@ -41,6 +46,47 @@ C_FAIL = '\033[91m'
 C_END = '\033[0m'
 C_BOLD = '\033[1m'
 C_GRAY = '\033[90m'
+C_UNDERLINE = '\033[4m' # Added
+# --- MISSING COLOR CONSTANTS ADDED BELOW ---
+C_YELLOW = '\033[93m'  # Bright yellow (same as C_WARNING for compatibility)
+C_WHITE = '\033[97m'   # Bright white
+C_OKBLUE = C_BLUE       # Alias for compatibility with old code
+C_OKGREEN = C_GREEN     # Alias for compatibility with old code
+
+# --- HELP TEXT Placeholder ---
+HELP_TEXT = """ 
+Placeholder for KADDU YT-VIEWS Help Information.
+
+Common Commands:
+  - Type 'help' at any prompt to see this message.
+
+Troubleshooting:
+  - Ensure you are in a Python virtual environment.
+  - Ensure Tor is installed and running.
+  - If using multiple connections, ensure your torrc is configured for multiple SOCKS ports (e.g., 9050, 9052, 9054...).
+  - For issues with sudo, try 'sudo -E python3 main.py'.
+
+More details will be added here.
+"""
+
+# --- Root Check Function (MOVED HERE) ---
+def check_root():
+    # On Linux/Unix systems
+    if os.name == 'posix':
+        # Also check if geteuid attribute exists for robustness, though it's standard on POSIX
+        if hasattr(os, 'geteuid') and os.geteuid() != 0:
+            # Modified message to be a warning rather than a strict exit, 
+            # as some sudo commands are called internally now.
+            print(f"{C_FAIL}{EMOJI_ERROR} ROOT/SUDO WARNING: This script may require root/sudo privileges for certain operations like Tor installation or system service management.{C_END}")
+            print(f"{C_WARNING}   While some parts might work, you may encounter errors if these operations are needed and fail due to lack of permissions.{C_END}")
+            print(f"{C_CYAN}{EMOJI_INFO}   If issues arise, consider running with: {C_BOLD}sudo -E python3 main.py{C_END}")
+            print(f"{C_GRAY}     (The -E flag helps preserve your Python virtual environment variables when using sudo.){C_END}")
+            # Allowing to proceed, specific commands will fail if they need sudo and don't have it.
+        elif hasattr(os, 'geteuid') and os.geteuid() == 0:
+            print(f"{C_GREEN}{EMOJI_SUCCESS} Script is running with root/sudo privileges.{C_END}")
+            if is_venv(): # Check if also in venv, is_venv() needs to be defined before this check_root call or this part moved
+                 print(f"{C_CYAN}{EMOJI_INFO}   Running as root inside a venv. If you used `sudo python3 ...`, it's often better to use `sudo -E python3 ...` to preserve the venv environment properly.{C_END}")
+    # Removed Windows admin check as script is now primarily for Linux-like environments with Tor system services.
 
 # --- Spinner Animation Helper ---
 def spinner_animation(message, stop_event, duration=0, color=C_CYAN, emoji=EMOJI_SPINNER):
@@ -806,22 +852,6 @@ def get_dry_run_choice():
             return False
         print(f"{C_WARNING}{EMOJI_ERROR} Invalid choice. Please enter 'yes' or 'no'.{C_END}") # MODIFIED
 
-# Check if running as root/admin
-def check_root():
-    # On Linux/Unix systems
-    if os.name == 'posix':
-        if os.geteuid() != 0:
-            print("\033[1;31mERROR:\033[0m This script must be run as root.")
-            print("Please run with: sudo python3 main.py")
-            sys.exit(1)
-    # Removed Windows admin check as script is now Linux-only
-    # elif os.name == 'nt':
-    #     import ctypes
-    #     if not ctypes.windll.shell32.IsUserAnAdmin():
-    #         print("\033[1;31mERROR:\033[0m This script must be run as administrator.")
-    #         print("Please right-click on Command Prompt or PowerShell and select 'Run as administrator'")
-    #         sys.exit(1)
-
 def validate_all_links(links, tor_ports):
     """
     Validates all user-provided links using available Tor ports in a round-robin fashion.
@@ -1058,205 +1088,163 @@ def dry_run_summary(links, views_count, num_connections, tor_ports_to_use):
         
     print(f"\n{C_GREEN}{EMOJI_SUCCESS} Dry run simulation complete. Check the configuration above.{C_END}")
 
-# Modify create_and_run_threads to handle a list of Tor ports
-def create_and_run_threads(links_data, views_count, num_threads, tor_port_or_ports, results_list):
-    threads = []
+# --- Progress Callback for Workers ---
+def view_progress_callback(results_list_ref, link_id, views_done_for_link_total, overall_views_total, url, success_flag, port_used, watch_duration_or_error_msg, link_title="N/A"):
+    """
+    Callback function for view_worker to report its progress.
+    Args:
+        results_list_ref (list): Reference to the list in the calling scope to store results.
+        link_id (int): Unique ID of the link.
+        views_done_for_link_total (int): Total views completed for this specific link so far.
+        overall_views_total (int): Total views completed overall across all links/workers.
+        url (str): The URL that was processed.
+        success_flag (bool): True if the view was successful, False otherwise.
+        port_used (int): The Tor SOCKS port used for the attempt.
+        watch_duration_or_error_msg (any): Actual watch time if successful, or an error message string if failed.
+        link_title (str): Title of the video/link.
+    """
+    if success_flag:
+        print(f"{C_GREEN}{EMOJI_SUCCESS} View #{views_done_for_link_total} for '{link_title}' ({url[:40]}...) on Port {port_used} SUCCEEDED. Watched for {watch_duration_or_error_msg}s. Overall views: {overall_views_total}.{C_END}")
+        results_list_ref.append((True, url, port_used, None))
+    else:
+        print(f"{C_FAIL}{EMOJI_ERROR} View attempt for '{link_title}' ({url[:40]}...) on Port {port_used} FAILED. Reason: {watch_duration_or_error_msg}. Overall views: {overall_views_total}.{C_END}")
+        results_list_ref.append((False, url, port_used, str(watch_duration_or_error_msg)))
+
+# --- Threaded View Generation ---
+def create_and_run_threads(links_data, views_count_per_link, num_concurrent_workers, tor_ports_to_use, results_list_ref):
+    global stop_event_global, completed_views_total, views_per_link_tracker
+
+    if not tor_ports_to_use:
+        print(f"{C_FAIL}{EMOJI_ERROR} Tor port list is empty in create_and_run_threads. Cannot proceed.{C_END}")
+        return 0, 0
+
+    print(f"\n{C_BLUE}{EMOJI_THREADS} Preparing to launch up to {num_concurrent_workers} concurrent viewer worker(s) for {len(links_data)} link(s)...{C_END}")
+    if tor_ports_to_use:
+         print(f"{C_CYAN}{EMOJI_INFO} Distributing {len(tor_ports_to_use)} Tor SOCKS ports ({', '.join(map(str, tor_ports_to_use))}) among workers.{C_END}")
+    else:
+         print(f"{C_WARNING}{EMOJI_WARNING} No Tor SOCKS ports provided to distribute.{C_END}")
+
+    completed_views_total = 0
+    views_per_link_tracker = {}
+    active_threads_list = []
+    port_assignment_index = 0
+    launched_thread_objects = []
+
+    for link_idx, link_info in enumerate(links_data):
+        if stop_event_global.is_set():
+            print(f"{C_WARNING}{EMOJI_INFO} Stop signal received during thread creation. No more new tasks will be started.{C_END}")
+            break
+        while True:
+            active_threads_list = [t for t in active_threads_list if t.is_alive()]
+            if len(active_threads_list) < num_concurrent_workers:
+                break
+            if stop_event_global.is_set(): break
+            time.sleep(0.5)
+        if stop_event_global.is_set(): break
+        url = link_info['url']
+        video_title = link_info.get('title', f"LinkID_{link_info.get('id', 'N/A')}")
+        assigned_tor_port = tor_ports_to_use[port_assignment_index % len(tor_ports_to_use)]
+        port_assignment_index += 1
+        thread_name = f"Worker-{link_info.get('id', 'X')}-{os.path.basename(urlparse(url).path)[:15]}"
+        progress_cb_for_worker = lambda lid, vdone, ovdone, lkurl, succ, port, dur_err, vt=video_title: view_progress_callback(
+            results_list_ref, lid, vdone, ovdone, lkurl, succ, port, dur_err, vt
+        )
+        thread = threading.Thread(
+            target=view_worker,
+            args=(
+                link_info,
+                views_count_per_link,
+                [assigned_tor_port],
+                progress_cb_for_worker
+            ),
+            name=thread_name
+        )
+        active_threads_list.append(thread)
+        launched_thread_objects.append(thread)
+        thread.start()
+        print(f"{C_GRAY}{EMOJI_INFO} Launched: {thread_name} for '{video_title}' (Target: {views_count_per_link} views, Port: {assigned_tor_port}){C_END}")
+        if len(links_data) > 1 and link_idx < len(links_data) -1 :
+            time.sleep(random.uniform(0.1, 0.5))
+    print(f"\n{C_BLUE}{EMOJI_WAIT} All {len(launched_thread_objects)} worker threads for links have been launched. Waiting for completion...{C_END}")
+    for thread_obj in launched_thread_objects:
+        thread_obj.join(timeout=30)
+        if thread_obj.is_alive():
+            print(f"{C_WARNING}{EMOJI_WARNING} Thread {thread_obj.name} did not terminate cleanly after stop signal and join timeout. It might be stuck in a blocking call.{C_END}")
+    print(f"\n{C_GREEN}{EMOJI_SUCCESS} All worker threads have completed or been signaled to stop.{C_END}")
     total_success_count = 0
     total_failure_count = 0
-    processed_links_count = 0
-
-    # Determine how to assign Tor ports to threads
-    # If tor_port_or_ports is a list, distribute them. Otherwise, use the single port for all.
-    is_multi_port = isinstance(tor_port_or_ports, list)
-    if is_multi_port and not tor_port_or_ports: # Should not happen if show_tor_status passed
-        print(f"{C_FAIL}{EMOJI_ERROR} Tor port list is empty in create_and_run_threads. Exiting.{C_END}")
-        sys.exit(1)
-    elif not is_multi_port and tor_port_or_ports is None: # Should not happen
-        print(f"{C_FAIL}{EMOJI_ERROR} Tor port is None in create_and_run_threads. Exiting.{C_END}")
-        sys.exit(1)
-
-    print(f"\n{C_BLUE}{EMOJI_THREADS} Preparing to launch {num_threads} viewer thread(s) for {len(links_data)} link(s)...{C_END}")
-    if is_multi_port:
-        print(f"{C_CYAN}{EMOJI_INFO} Distributing {len(tor_port_or_ports)} Tor SOCKS ports among threads.{C_END}")
-    else:
-        print(f"{C_CYAN}{EMOJI_INFO} Using single Tor SOCKS port: {tor_port_or_ports}{C_END}")
-
-    thread_id_counter = 0 # For unique thread names
-
-    for link_info in links_data:
-        url = link_info['url']
-        video_title = link_info['title']
-        
-        # Assign views for this specific link
-        actual_views_for_this_link = views_count # Assuming views_count is per link for now
-        
-        print(f"\n{C_CYAN}Processing link: {C_UNDERLINE}{url}{C_END}{C_CYAN} (Title: {video_title}) - Target views: {actual_views_for_this_link}{C_END}")
-
-        for i in range(actual_views_for_this_link):
-            if num_threads <= 0: # Should not happen with validation
-                print(f"{C_WARNING}Number of threads is zero or less, skipping view generation for {url}.{C_END}")
-                continue
-
-            # Wait for an available thread slot if num_threads is a concurrency limit
-            while threading.active_count() -1 >= num_threads: # -1 for the main thread
-                time.sleep(0.5)
-
-            # Determine Tor port for this thread
-            current_tor_port = None
-            if is_multi_port:
-                current_tor_port = tor_port_or_ports[thread_id_counter % len(tor_port_or_ports)]
-            else:
-                current_tor_port = tor_port_or_ports
-            
-            thread_id_counter += 1
-            thread_name = f"ViewThread-{thread_id_counter}-{os.path.basename(urlparse(url).path)}"
-
-            # Each thread gets its own stop_event for its spinner
-            thread_stop_event = threading.Event()
-            
-            thread = threading.Thread(
-                target=view_video_thread,
-                args=(url, video_title, current_tor_port, results_list, thread_stop_event, thread_id_counter),
-                name=thread_name
-            )
-            threads.append(thread)
-            thread.start()
-            print(f"{C_GRAY}{EMOJI_INFO} Started: {thread_name} (View {i+1}/{actual_views_for_this_link} for {video_title}, Port: {current_tor_port}){C_END}")
-            
-            # Small delay between starting threads to avoid overwhelming system/network
-            # Especially important if each thread is trying to initialize a new Tor circuit
-            time.sleep(random.uniform(0.5, 2.0)) 
-
-    print(f"\n{C_BLUE}{EMOJI_WAIT} All ({len(threads)}) view generation threads launched. Waiting for completion...{C_END}")
-    for thread in threads:
-        thread.join() # Wait for all threads to complete
-
-    print(f"\n{C_GREEN}{EMOJI_SUCCESS} All view generation threads have completed.{C_END}")
-
-    # Process results_list to get total success/failure counts
-    for success, link_url, port_used, error_msg in results_list:
+    for success, _, _, _ in results_list_ref:
         if success:
             total_success_count += 1
         else:
             total_failure_count += 1
-            # Optionally log detailed errors here if needed
-            # print(f"{C_FAIL}Failed view for {link_url} on port {port_used}: {error_msg}{C_END}")
-
     return total_success_count, total_failure_count
 
-# --- Globals for View Worker Threads ---
-completed_views_lock = threading.Lock()
-completed_views_total = 0 # Tracks total views across all links in the current run
-views_per_link_tracker = {} # Tracks views for each specific link_id in the current run
-stop_event_global = threading.Event() # Used to signal all worker threads to stop
+# --- Simulate View (Refactored) ---
+def simulate_view(link, tor_port, watch_time):
+    proxies = {"http": f"socks5h://127.0.0.1:{tor_port}", "https": f"socks5h://127.0.0.1:{tor_port}"}
+    headers = {"User-Agent": get_random_user_agent()}
+    try:
+        response = requests.get(link, headers=headers, proxies=proxies, timeout=20, stream=True)
+        if response.status_code < 400:
+            time.sleep(watch_time)
+            response.close()
+            return True, None
+        error_msg = f"HTTP Status {response.status_code}"
+        response.close()
+        return False, error_msg
+    except requests.exceptions.Timeout:
+        return False, "Request timed out"
+    except requests.exceptions.RequestException as e:
+        return False, f"RequestException: {str(e)}"
+    except Exception as e:
+        return False, f"Unexpected error: {str(e)}"
 
-def check_virtual_environment():
-    """
-    Checks if the script is running inside a Python virtual environment.
-    If not, prints a warning and guidance to the user.
-    """
-    if not (hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)):
-        print(f"\n{C_WARNING}{EMOJI_ERROR} WARNING: You are not running this script in a Python virtual environment.{C_END}")
-        print(f"{C_GRAY}Running without a virtual environment can lead to dependency conflicts and unexpected errors (like 'Missing dependencies for SOCKS support').{C_END}")
-        print(f"{C_OKBLUE}It is STRONGLY recommended to use a virtual environment.{C_END}")
-        print(f"{C_OKGREEN}To create and use a virtual environment (on most systems):{C_END}")
-        print(f"{C_BOLD}  1. python3 -m venv .venv{C_END}  (Creates a venv folder named '.venv')")
-        print(f"{C_BOLD}  2. source .venv/bin/activate{C_END} (On Linux/macOS)")
-        print(f"{C_BOLD}     OR{C_END}")
-        print(f"{C_BOLD}     .venv\\Scripts\\activate{C_END} (On Windows CMD/PowerShell)")
-        print(f"{C_BOLD}  3. pip install -r requirements.txt{C_END} (Install dependencies INSIDE the venv)")
-        print(f"{C_BOLD}  4. python3 main.py{C_END} (Run the script from within the activated venv)")
-        print(f"{C_GRAY}You may need to press Enter to continue if the script proceeds...{C_END}")
-        input(f"{C_WARNING}Press Enter to acknowledge and continue without a venv (NOT RECOMMENDED), or Ctrl+C to exit and set up a venv: {C_END}")
-    else:
-        print(f"{C_OKGREEN}{EMOJI_SUCCESS} Running inside a Python virtual environment. Good job!{C_END}")
-
+# --- View Worker (Refactored) ---
 def view_worker(link_info, views_to_generate_for_this_link, tor_ports_available, progress_callback_func):
-    """
-    Worker function executed by each thread to simulate views for a single link.
-    It handles IP rotation (by picking from available tor_ports_available) and view timing.
-    Args:
-        link_info (dict): Dictionary containing {'url', 'type', 'length', 'id'} for the link.
-        views_to_generate_for_this_link (int): Number of views to generate for this specific link (0 for continuous).
-        tor_ports_available (list): List of available Tor SOCKS port numbers for this worker to use.
-        progress_callback_func (function): Callback function to report progress.
-                                        Expected signature: callback(link_id, views_done_for_link, total_overall_views, url, success_flag, port_used, watch_duration)
-    """
     global completed_views_total, views_per_link_tracker, stop_event_global
-
     link_id = link_info['id']
     link_url = link_info['url']
     is_short_video = link_info['type'] == 'short'
     base_video_length = link_info['length']
-    
-    local_views_done_count = 0 # Views done by this worker for this specific link
-
+    local_views_done_count = 0
     if not tor_ports_available:
         print(f"{C_FAIL}{EMOJI_ERROR} Critical: No Tor ports assigned to worker for {link_url}. Worker exiting.{C_END}")
-        return # Cannot proceed without Tor ports
-
-    # Each worker can start at a random port to distribute initial load slightly
+        return
     current_port_index = random.randrange(len(tor_ports_available))
-
-    # Loop for generating views until the target is met or stop_event is set
     while not stop_event_global.is_set():
         if views_to_generate_for_this_link > 0 and local_views_done_count >= views_to_generate_for_this_link:
-            # print(f"{C_OKGREEN}Worker for link ID {link_id} completed its {local_views_done_count} views.{Colors.ENDC}")
-            break # Target views for this link reached
-
-        # Select Tor port for this attempt (round-robin from available ports)
+            break
         chosen_tor_port = tor_ports_available[current_port_index % len(tor_ports_available)]
-        current_port_index += 1 # Move to next port for next iteration
-
-        # Simulate delay before starting the view (human-like behavior)
+        current_port_index += 1
         pre_view_delay = get_random_start_delay()
-        # print(f"{C_GRAY}Worker (LID:{link_id}, Port:{chosen_tor_port}): Delaying {pre_view_delay}s for {link_url[:30]}...{Colors.ENDC}")
-        # Sleep in small chunks to check stop_event frequently
         sleep_chunk_end_time = time.time() + pre_view_delay
         while time.time() < sleep_chunk_end_time:
             if stop_event_global.is_set(): break
             time.sleep(min(0.5, sleep_chunk_end_time - time.time()))
         if stop_event_global.is_set(): break
-
-        # Determine actual watch time for this view
         actual_watch_time = get_random_watch_time(base_video_length, is_short_video)
-        
-        # print(f"{C_GRAY}Worker (LID:{link_id}, Port:{chosen_tor_port}): Attempting view on {link_url[:30]}... (watch {actual_watch_time}s).{Colors.ENDC}")
-        
-        if stop_event_global.is_set(): break # Check just before the blocking network call
-        view_successful = simulate_view(link_url, chosen_tor_port, actual_watch_time)
-        if stop_event_global.is_set(): break # Check immediately after the network call returns
-        
+        if stop_event_global.is_set(): break
+        view_successful, sim_result_msg = simulate_view(link_url, chosen_tor_port, actual_watch_time)
+        if stop_event_global.is_set(): break
         if view_successful:
-            with completed_views_lock: # Thread-safe update of shared counters
+            with completed_views_lock:
                 completed_views_total += 1
                 local_views_done_count += 1
-                # Update tracker for this specific link
                 views_per_link_tracker[link_id] = views_per_link_tracker.get(link_id, 0) + 1
                 current_link_total_views = views_per_link_tracker[link_id]
-            # Report progress: link_id, views_done_for_this_link_by_this_worker, total_overall_views, url, success_flag, port, watch_time
             progress_callback_func(link_id, current_link_total_views, completed_views_total, link_url, True, chosen_tor_port, actual_watch_time)
         else:
-            with completed_views_lock: # Access tracker safely even on failure if needed for accurate count before failure
+            with completed_views_lock:
                  current_link_total_views = views_per_link_tracker.get(link_id, 0)
-            progress_callback_func(link_id, current_link_total_views, completed_views_total, link_url, False, chosen_tor_port, actual_watch_time)
-
-        # Delay between consecutive views by this worker (human-like behavior)
-        # Longer delay if in continuous mode (views_to_generate_for_this_link == 0)
+            progress_callback_func(link_id, current_link_total_views, completed_views_total, link_url, False, chosen_tor_port, sim_result_msg)
         post_view_delay_base = 10 if views_to_generate_for_this_link == 0 else 5
         post_view_delay = random.uniform(post_view_delay_base, post_view_delay_base + 10)
-        # print(f"{C_GRAY}Worker (LID:{link_id}, Port:{chosen_tor_port}): Post-view delay {post_view_delay:.1f}s for {link_url[:30]}...{Colors.ENDC}")
-        
         sleep_chunk_end_time = time.time() + post_view_delay
         while time.time() < sleep_chunk_end_time:
             if stop_event_global.is_set(): break
-            time.sleep(min(0.5, sleep_chunk_end_time - time.time())) # Check for stop signal frequently
+            time.sleep(min(0.5, sleep_chunk_end_time - time.time()))
         if stop_event_global.is_set(): break
-            
-    # if stop_event_global.is_set():
-    #     print(f"{C_YELLOW}Worker for link ID {link_id} ({link_url[:30]}...) received stop signal and is terminating. Views by this worker: {local_views_done_count}.{Colors.ENDC}")
-    # else:
-    #     print(f"{C_OKBLUE}Worker for link ID {link_id} ({link_url[:30]}...) finished its tasks. Views by this worker: {local_views_done_count}.{Colors.ENDC}")
 
 def main():
     """Main function to run the YouTube view generation system."""
@@ -1346,6 +1334,9 @@ def main():
 # Define GITHUB_LINK and TIP_TEXT (used in main)
 GITHUB_LINK = "https://github.com/Kaddu-Hacker/InfiniteYtViews"
 TIP_TEXT = f"{C_BLUE}{EMOJI_INFO} Tip: {C_BOLD}Always run this script in a Python virtual environment (venv){C_END} to avoid system-wide package conflicts and ensure correct dependency versions. See 'help' for more."
+
+# --- GLOBAL LOCK FOR THREADING (for completed_views_total, etc.) ---
+completed_views_lock = threading.Lock()
 
 if __name__ == "__main__":
     # The prioritized setup checks (require_venv, check_root, dependencies, Tor) 
