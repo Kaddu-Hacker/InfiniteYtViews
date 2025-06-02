@@ -69,6 +69,9 @@ Troubleshooting:
 More details will be added here.
 """
 
+# --- GLOBAL STOP EVENT FOR THREAD CONTROL ---
+stop_event_global = threading.Event()
+
 # --- Root Check Function (MOVED HERE) ---
 def check_root():
     # On Linux/Unix systems
@@ -1274,62 +1277,62 @@ def main():
 
     views_per_target_link = get_views_per_link()
     num_parallel_connections = get_connection_count()
-    
-    # --- Tor Ports Setup ---
-    # Determine base SOCKS and Control ports, trying pytor defaults first.
-    try:
-        base_tor_port = pytor.DEFAULT_TOR_PORT
-    except AttributeError:
-        print(f"{C_GRAY}{EMOJI_INFO} pytor.DEFAULT_TOR_PORT not defined, using 9050 as default SOCKS port.{C_END}")
-        base_tor_port = 9050
-    
-    try:
-        base_control_port = pytor.DEFAULT_CONTROL_PORT
-    except AttributeError:
-        print(f"{C_GRAY}{EMOJI_INFO} pytor.DEFAULT_CONTROL_PORT not defined, using 9051 as default Control port.{C_END}")
-        base_control_port = 9051
 
-    # Prepare a list of SOCKS ports to use, gapped by 2 as per HELP_TEXT example.
-    # e.g., if num_connections = 3, ports will be [9050, 9052, 9054]
-    tor_ports_to_use = [base_tor_port + (i * 2) for i in range(num_parallel_connections)]
+    # --- Robust Tor Port and Instance Management ---
+    pytor.ensure_tor_binary()
+    print(f"\n{C_BLUE}{EMOJI_TOR} Detecting available system Tor SOCKS ports...{C_END}")
+    available_ports = pytor.detect_tor_ports(9050, 9100, verbose_scan=False)
+    print(f"{C_GREEN}{EMOJI_SUCCESS} Found {len(available_ports)} system Tor port(s): {available_ports}{C_END}")
 
-    print(f"\n{C_BLUE}{EMOJI_TOR} Preparing and verifying {num_parallel_connections} Tor connection(s) on SOCKS ports: {tor_ports_to_use}...{C_END}")
-    
-    # show_tor_status checks connectivity for the required SOCKS ports.
-    # It may attempt to start the general Tor service using pytor.start_tor() if no ports are active.
-    # It expects the list of SOCKS ports and the base_control_port (in case pytor.start_tor() uses it, though current pytor.start_tor() seems generic).
-    show_tor_status(ports_to_use=tor_ports_to_use, base_control_port=base_control_port)
+    tor_instances = []  # Track user-space instances for cleanup
+    if len(available_ports) < num_parallel_connections:
+        additional_needed = num_parallel_connections - len(available_ports)
+        print(f"{C_YELLOW}{EMOJI_WARNING} Only {len(available_ports)} system Tor port(s) available. Starting {additional_needed} user-space Tor instance(s)...{C_END}")
+        free_ports = pytor.find_free_ports(additional_needed, start_search_port=9101)
+        for port in free_ports:
+            instance = pytor.start_tor_instance(port)
+            if instance and pytor.verify_tor_instance(instance, timeout=90):
+                tor_instances.append(instance)
+                available_ports.append(port)
+            else:
+                print(f"{C_RED}{EMOJI_ERROR} Failed to start/verify Tor instance on port {port}. Skipping.{C_END}")
 
-    validated_links = validate_all_links(user_links_data, tor_ports_to_use) 
-    
-    if not validated_links: 
+    if not available_ports:
+        print(f"{C_FAIL}{EMOJI_ERROR} No Tor ports available. Exiting.{C_END}")
+        sys.exit(1)
+
+    if len(available_ports) < num_parallel_connections:
+        print(f"{C_YELLOW}{EMOJI_WARNING} Only {len(available_ports)} total ports available. Reducing parallel connections to {len(available_ports)}.{C_END}")
+        num_parallel_connections = len(available_ports)
+
+    print(f"{C_GREEN}{EMOJI_SUCCESS} Using Tor ports: {available_ports}{C_END}")
+
+    # ... continue as before, but use available_ports instead of tor_ports_to_use ...
+    validated_links = validate_all_links(user_links_data, available_ports)
+    if not validated_links:
         print(f"{C_FAIL}{EMOJI_ERROR} No valid links to process after validation. Exiting.{C_END}")
+        pytor.cleanup_tor_instances(tor_instances)
         sys.exit(1)
 
     is_dry_run = get_dry_run_choice()
     if is_dry_run:
-        # dry_run_summary also needs to accept the list of ports.
-        dry_run_summary(validated_links, views_per_target_link, num_parallel_connections, tor_ports_to_use)
+        dry_run_summary(validated_links, views_per_target_link, num_parallel_connections, available_ports)
         print(f"\n{C_GREEN}{EMOJI_SUCCESS}Dry run complete. Exiting.{C_END}")
+        pytor.cleanup_tor_instances(tor_instances)
         sys.exit(0)
 
     print(f"\n{C_HEADER}{EMOJI_ROCKET} STARTING VIEW GENERATION {EMOJI_ROCKET}{C_END}")
-    
-    all_threads = []
-    results = [] 
-
-    # Pass the list of ports to create_and_run_threads.
+    results = []
     total_success_sync, total_failure_sync = create_and_run_threads(
-        validated_links, views_per_target_link, num_parallel_connections, tor_ports_to_use, results
+        validated_links, views_per_target_link, num_parallel_connections, available_ports, results
     )
-
-    # Display results
     print(f"\n{C_OKBLUE}--- FINAL SUMMARY ---")
     print(f"{C_OKGREEN}{EMOJI_SUCCESS} Total successful views: {total_success_sync}")
     print(f"{C_FAIL}{EMOJI_ERROR} Total failed attempts: {total_failure_sync}{C_END}")
     print(f"{C_OKBLUE}--------------------{C_END}")
     print(f"{C_HEADER}{EMOJI_THANKS} Thanks for using KADDU YT-VIEWS! {EMOJI_STAR}{C_END}")
     print(f"{C_YELLOW}Consider starring the project on GitHub: {GITHUB_LINK}{C_END}")
+    pytor.cleanup_tor_instances(tor_instances)
 
 # Define GITHUB_LINK and TIP_TEXT (used in main)
 GITHUB_LINK = "https://github.com/Kaddu-Hacker/InfiniteYtViews"
