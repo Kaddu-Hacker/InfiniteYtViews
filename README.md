@@ -2,6 +2,12 @@
 
 Automated, Smart, and Human-like YouTube View Simulation!
 
+> **Infotainment:**
+> - Did you know? The Tor network is run by thousands of volunteers worldwide!
+> - Fun Fact: The first YouTube video was uploaded in 2005.
+> - Motivation: Every view counts, just like every effort you make!
+> - Joke: Why did the onion cry? Because it was peeled by Tor!
+
 This script helps simulate views for your YouTube videos and shorts using Tor for IP rotation, with a focus on mimicking human-like behavior. **This script is intended for Linux systems only.**
 
 **GitHub:** [https://github.com/Kaddu-Hacker/InfiniteYtViews](https://github.com/Kaddu-Hacker/InfiniteYtViews)
@@ -169,5 +175,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ---
 
 <p align="center">
-  <b>Made with ❤️ by KADDU</b>
+  <b>Made with ❤️ by KADDU</b><br>
+  <i>Infotainment: "Privacy is not an option, and it shouldn't be the price we accept for just getting on the Internet."</i>
 </p>
