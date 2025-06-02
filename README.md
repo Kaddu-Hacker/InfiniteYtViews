@@ -27,6 +27,9 @@ This script helps simulate views for your YouTube videos and shorts using Tor fo
 
 - **No More Manual Setup:**
   - Just activate your venv, run the script, and it will handle the rest!
+  - The script checks and installs all Python dependencies, Tor, geckodriver, and provides clear manual instructions for installation if automatic setup fails.
+  - The infotainment system provides friendly, motivational, and privacy tips throughout the process.
+  - All requirements, setup, and checks are fully automated. You only need to run `python3 main.py`.
 
 
 ## Features
