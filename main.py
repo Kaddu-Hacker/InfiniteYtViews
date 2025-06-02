@@ -1173,7 +1173,7 @@ def create_and_run_threads(links_data, views_per_link, num_connections, tor_port
     """
     Creates and manages a pool of threads to simulate views.
     """
-    print(f"\\n{C_HEADER}{EMOJI_THREADS} {C_BOLD}Initiating View Generation Process{C_END}")
+    print(f"\n{C_HEADER}{EMOJI_THREADS} {C_BOLD}Initiating View Generation Process{C_END}")
     print(f"{C_CYAN}  Targeting {views_per_link} views for each of the {len(links_data)} link(s).{C_END}")
     print(f"{C_CYAN}  Will use {num_connections} parallel worker(s) across Tor ports: {tor_ports_to_use}{C_END}")
     
@@ -1193,31 +1193,31 @@ def create_and_run_threads(links_data, views_per_link, num_connections, tor_port
 
     port_cycler = itertools.cycle(tor_ports_to_use)
     submitted_tasks_count = 0
+    total_tasks_to_submit = len(all_view_tasks_details)  # Fix undefined variable
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_connections) as executor:
         future_to_task = {} # To map future back to task details for logging if needed
         
-        for task_link_data, task_view_num, task_total_views in all_view_tasks:
+        for task_link_data, task_view_num, task_total_views, task_overall_num, task_total_overall in all_view_tasks_details:
             if stop_event_global.is_set():
                 print(f"{C_WARNING}{EMOJI_WARNING} Global stop signal received. No more tasks will be submitted.{C_END}")
                 break
             
             current_tor_port = next(port_cycler)
-            future = executor.submit(view_worker, task_link_data, current_tor_port, task_view_num, task_total_views)
+            future = executor.submit(view_worker, task_link_data, current_tor_port, task_view_num, task_total_views, task_overall_num, task_total_overall)
             future_to_task[future] = f"View {task_view_num} for {task_link_data['title'][:30]}"
-            submitted_tasks +=1
+            submitted_tasks_count += 1
             
             # Brief pause between submitting tasks to avoid bursting Tor connections
             time.sleep(random.uniform(0.2, 0.8)) 
 
-        print(f"\n{C_BLUE}{EMOJI_WAIT} All {submitted_tasks}/{total_tasks_to_submit} view tasks submitted to workers. Monitoring completion... (Ctrl+C to signal stop){C_END}")
+        print(f"\n{C_BLUE}{EMOJI_WAIT} All {submitted_tasks_count}/{total_tasks_to_submit} view tasks submitted to workers. Monitoring completion... (Ctrl+C to signal stop){C_END}")
         
         # Wait for futures to complete, respecting stop_event_global
         try:
             for future in concurrent.futures.as_completed(future_to_task.keys()):
                 task_desc = future_to_task[future]
                 if stop_event_global.is_set():
-                    # print(f"{C_YELLOW}  Task {task_desc} completion check skipped due to stop signal.{C_END}")
                     pass # Worker itself checks stop_event_global
                 try:
                     future.result(timeout=1) # Check result briefly, but don't hang if worker is stuck despite stop_event
@@ -1229,21 +1229,19 @@ def create_and_run_threads(links_data, views_per_link, num_connections, tor_port
                     print(f"{C_FAIL}{EMOJI_ERROR} Task {task_desc} generated an error: {exc}{C_END}")
                 
                 if stop_event_global.is_set() and executor._work_queue.qsize() == 0 and len(executor._threads) == 0:
-                     print(f"{C_YELLOW} Stop signal active and executor queue empty/threads winding down.{C_END}")
-                     break
+                    print(f"{C_YELLOW} Stop signal active and executor queue empty/threads winding down.{C_END}")
+                    break
 
         except KeyboardInterrupt: # Handle Ctrl+C during as_completed
             print(f"\n{C_WARNING}{EMOJI_WARNING} Keyboard interrupt during task monitoring. Signaling stop to all workers...{C_END}")
             stop_event_global.set()
-            # Give workers a moment to react to the stop_event_global
             time.sleep(5) 
-            # executor.shutdown(wait=True, cancel_futures=True) # Py3.9+ for cancel_futures
-            executor.shutdown(wait=True) # Shutdown remaining threads
+            executor.shutdown(wait=True)
 
-    if stop_event_global.is_set():
-        print(f"\n{C_WARNING}{EMOJI_WARNING} View generation process was interrupted.{C_END}")
-    else:
-        print(f"\n{C_GREEN}{EMOJI_CELEBRATE} All submitted view generation tasks have been processed.{C_END}")
+        if stop_event_global.is_set():
+            print(f"\n{C_WARNING}{EMOJI_WARNING} View generation process was interrupted.{C_END}")
+        else:
+            print(f"\n{C_GREEN}{EMOJI_CELEBRATE} All submitted view generation tasks have been processed.{C_END}")
 
 def estimate_total_time(links_data, views_per_link, num_connections):
     if not links_data or num_connections == 0 or views_per_link == 0:
