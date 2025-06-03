@@ -4,11 +4,42 @@
 
 ---
 
-## 🖼️ Banner
+## 🚀 Docker Quick Start (Recommended)
 
-```
-(When you run the script, you'll see a cool ASCII banner from the ASCII file!)
-```
+**1. Install Docker & Docker Compose:**
+
+- **Linux:**
+  ```bash
+  sudo apt update && sudo apt install docker.io docker-compose-plugin -y
+  sudo systemctl enable docker --now
+  sudo usermod -aG docker $USER  # Log out and back in after this
+  ```
+- **Windows/macOS:**  
+  Download and install Docker Desktop from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
+
+**2. Start Docker:**
+- **Linux:**  
+  ```bash
+  sudo systemctl start docker
+  ```
+- **Windows/macOS:**  
+  Open Docker Desktop from your applications menu.
+
+**3. (Linux only) Add your user to the docker group:**
+  ```bash
+  sudo usermod -aG docker $USER
+  # Log out and back in for this to take effect!
+  ```
+
+**4. Run the script in Docker mode:**
+  ```bash
+  python main.py --use-docker
+  ```
+
+**5. If prompted, start Docker Compose services:**
+  ```bash
+  docker-compose up -d --build
+  ```
 
 ---
 

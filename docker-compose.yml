@@ -1,3 +1,23 @@
+# ---------------------------------------------
+# KADDU YT-VIEWS: Docker Compose for Tor Proxies
+#
+# How to use:
+# 1. Make sure Docker and Docker Compose are installed and running.
+# 2. Start all Tor proxies with:
+#    docker-compose up -d --build
+# 3. Run the script in Docker mode:
+#    python main.py --use-docker
+#
+# To scale up (add more proxies):
+# - Copy one of the torproxy sections below, change the service name and ports (e.g., torproxy4, 9053:9050, 8053:9051).
+# - Save the file and re-run 'docker-compose up -d --build'.
+#
+# Troubleshooting:
+# - If you see port conflicts, make sure each service uses unique host ports.
+# - If a proxy fails to start, check Docker logs with:
+#    docker-compose logs <service_name>
+# ---------------------------------------------
+
 version: '3.8'
 services:
   torproxy1:

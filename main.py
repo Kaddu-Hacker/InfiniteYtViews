@@ -7,12 +7,66 @@
 import os
 import sys
 import subprocess
-import shutil
 import importlib.util
 import time
 import threading
-import platform
 import itertools
+
+# --- DEPENDENCY CHECK & INSTALLATION (NO THIRD-PARTY IMPORTS YET) ---
+def spinner(message, stop_event):
+    """
+    Simple spinner animation using only the standard library.
+    """
+    spinner_cycle = itertools.cycle(['|', '/', '-', '\\'])
+    while not stop_event.is_set():
+        sys.stdout.write(f"\r{message} {next(spinner_cycle)}")
+        sys.stdout.flush()
+        time.sleep(0.1)
+    sys.stdout.write("\r" + " " * (len(message) + 2) + "\r")
+    sys.stdout.flush()
+
+
+def check_and_install_python_dependencies():
+    """
+    Installs all required Python packages from requirements.txt if not already installed.
+    Hides installation output and shows a simple spinner for each install.
+    """
+    req_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requirements.txt')
+    if not os.path.exists(req_file):
+        print("[ERROR] requirements.txt not found! Exiting.")
+        sys.exit(1)
+    with open(req_file) as f:
+        pkgs = [line.strip().split('==')[0] for line in f if line.strip() and not line.startswith('#')]
+    missing = []
+    for pkg in pkgs:
+        try:
+            importlib.import_module(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if not missing:
+        return
+    for pkg in missing:
+        stop_event = threading.Event()
+        t = threading.Thread(target=spinner, args=(f"Installing {pkg}...", stop_event))
+        t.start()
+        try:
+            # Hide output by redirecting to DEVNULL
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            stop_event.set()
+            t.join()
+            print(f"\n[ERROR] Failed to install {pkg}: {e}")
+            sys.exit(1)
+        stop_event.set()
+        t.join()
+        print(f"[OK] {pkg} installed.")
+
+# --- ENSURE ALL DEPENDENCIES ARE INSTALLED BEFORE IMPORTING THEM ---
+check_and_install_python_dependencies()
+
+# --- NOW SAFE TO IMPORT THIRD-PARTY MODULES ---
+import shutil
+import platform
 import random
 import urllib.request
 import json
@@ -22,32 +76,14 @@ import socket
 import stat
 import argparse
 import requests  # Added for requests usage
-
-# --- DOCKER AND STEM RELATED IMPORTS ---
 import docker # For interacting with Docker daemon
 from stem.control import Controller # For Tor control
 from stem import Signal # For NEWNYM signal
-
-# --- UI ENHANCEMENTS: Banner and Spinner (modular, robust) ---
-# These are used only for setup/install steps, not for the main logic.
-try:
-    from rich.console import Console
-    from rich.spinner import Spinner
-    from rich.text import Text
-    from rich.syntax import Syntax
-    import pyfiglet
-except ImportError:
-    # Fallback: install missing packages if not present
-    import subprocess
-    import sys
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'rich', 'pyfiglet'])
-    from rich.console import Console
-    from rich.spinner import Spinner
-    from rich.text import Text
-    from rich.syntax import Syntax
-    import pyfiglet
-
-console = Console()
+from rich.console import Console
+from rich.spinner import Spinner
+from rich.text import Text
+from rich.syntax import Syntax
+import pyfiglet
 
 # --- CONSTANTS ---
 GECKO_API_URL = "https://api.github.com/repos/mozilla/geckodriver/releases/latest"  # For geckodriver download
@@ -834,6 +870,65 @@ def is_termux():
     # Detect Termux by checking for the 'com.termux' prefix in $PREFIX or $HOME
     return 'com.termux' in os.environ.get('PREFIX', '') or 'com.termux' in os.environ.get('HOME', '')
 
+# --- DOCKER AUTOMATION & USER GUIDANCE ---
+def ensure_docker_ready():
+    """
+    Checks for Docker and Docker Compose, and provides clear, step-by-step guidance if missing or not running.
+    Offers to start Docker Compose services if not running.
+    """
+    import platform
+    sys_platform = platform.system().lower()
+    # Check Docker
+    if shutil.which('docker') is None:
+        console.print("[bold red]❌ Docker is not installed.[/bold red]")
+        if sys_platform == 'linux':
+            console.print("[cyan]Install Docker on Linux:[/cyan]")
+            console.print(Syntax("sudo apt update && sudo apt install docker.io -y\nsudo systemctl enable docker --now\nsudo usermod -aG docker $USER  # Log out and back in after this", "bash"))
+        elif sys_platform == 'darwin':
+            console.print("[cyan]Install Docker Desktop for Mac from: https://www.docker.com/products/docker-desktop[/cyan]")
+        elif sys_platform == 'windows':
+            console.print("[cyan]Install Docker Desktop for Windows from: https://www.docker.com/products/docker-desktop[/cyan]")
+        else:
+            console.print("[yellow]Please install Docker for your OS from: https://docs.docker.com/get-docker/[/yellow]")
+        sys.exit(1)
+    # Check Docker daemon
+    try:
+        client = docker.from_env()
+        client.ping()
+    except Exception as e:
+        console.print("[bold red]❌ Docker is installed, but the Docker daemon is not running or you lack permissions.[/bold red]")
+        if sys_platform == 'linux':
+            console.print("[cyan]Start Docker with:[/cyan] [bold]sudo systemctl start docker[/bold]")
+            console.print("[yellow]If you see a permissions error, add your user to the docker group and log out/in:[/yellow]")
+            console.print(Syntax("sudo usermod -aG docker $USER", "bash"))
+        elif sys_platform in ('darwin', 'windows'):
+            console.print("[cyan]Start Docker Desktop from your applications menu.[/cyan]")
+        sys.exit(1)
+    # Check Docker Compose
+    if shutil.which('docker-compose') is None and shutil.which('docker') is not None:
+        # Try 'docker compose' as a plugin
+        try:
+            subprocess.check_output(['docker', 'compose', 'version'])
+        except Exception:
+            console.print("[bold red]❌ Docker Compose is not installed.[/bold red]")
+            if sys_platform == 'linux':
+                console.print("[cyan]Install Docker Compose plugin:[/cyan]")
+                console.print(Syntax("sudo apt update && sudo apt install docker-compose-plugin -y", "bash"))
+            else:
+                console.print("[yellow]See: https://docs.docker.com/compose/install/[/yellow]")
+            sys.exit(1)
+    # Check if Docker Compose services are running (optional, just print guidance)
+    compose_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'docker-compose.yml')
+    if os.path.exists(compose_file):
+        try:
+            output = subprocess.check_output(['docker-compose', '-f', compose_file, 'ps'], stderr=subprocess.STDOUT, text=True)
+            if 'Up' not in output:
+                console.print("[yellow]Docker Compose services are not running. Start them with:[/yellow]")
+                console.print(Syntax(f"docker-compose -f {compose_file} up -d --build", "bash"))
+        except Exception:
+            pass
+    console.print("[bold green]✅ Docker and Docker Compose are ready![/bold green]")
+
 # --- Main application logic ---
 def main():
     global stop_event_global
@@ -846,6 +941,8 @@ def main():
         # If venv is not ready, tell the user what to do next
         console.print("[yellow]Activate your virtual environment and re-run: [bold]python main.py[/bold][/yellow]")
         return
+    # --- Docker automation: ensure Docker is ready before starting Docker Compose services ---
+    ensure_docker_ready()
     # ... rest of main ...
     # Before Tor/Firefox checks:
     if shutil.which('tor') is None:
