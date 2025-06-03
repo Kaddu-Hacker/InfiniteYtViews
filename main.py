@@ -53,8 +53,18 @@ console = Console()
 GECKO_API_URL = "https://api.github.com/repos/mozilla/geckodriver/releases/latest"  # For geckodriver download
 
 def print_banner():
-    banner = pyfiglet.figlet_format("KADDU YT-VIEWS", font="slant")
-    console.print(f"[bold magenta]{banner}[/bold magenta]")
+    """
+    Prints the ASCII banner from the 'ASCII' file if present, otherwise uses pyfiglet as fallback.
+    """
+    ascii_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ASCII')
+    if os.path.exists(ascii_path):
+        with open(ascii_path, 'r', encoding='utf-8', errors='ignore') as f:
+            banner = f.read()
+        console.print(f"[bold magenta]{banner}[/bold magenta]")
+    else:
+        # Fallback to pyfiglet if ASCII file is missing
+        banner = pyfiglet.figlet_format("KADDU YT-VIEWS", font="slant")
+        console.print(f"[bold magenta]{banner}[/bold magenta]")
     console.print("[cyan]Automated, Smart, and Human-like YouTube View Simulation![/cyan]\n")
 
 def spinner_message(message, func, *args, **kwargs):
@@ -123,7 +133,6 @@ def check_and_install_python_dependencies():
     except Exception as e:
         console.print(f"[bold red]❌ Failed to install Python dependencies: {e}[/bold red]")
         sys.exit(1)
-# --- END VENV & DEPENDENCY SETUP ---
 
 # --- DOCKER AND SYSTEM CHECK FUNCTIONS ---
 def is_command_available(command):
@@ -136,8 +145,7 @@ def check_docker_installed():
     if not is_command_available("docker"):
         console.print("[bold red]❌ Docker is not installed or not in PATH.[/bold red]")
         console.print("[cyan]ℹ️  Please install Docker. For Debian/Ubuntu based systems:[/cyan]")
-        console.print(Syntax("sudo apt update && sudo apt install docker.io -y && sudo systemctl enable docker --now", "bash", theme="monokai", line_numbers=False, background_color="default"))
-        console.print("[cyan]For other systems, please refer to the official Docker documentation.[/cyan]")
+        console.print(Syntax("sudo apt update && sudo apt install docker.io -y && sudo systemctl enable docker --now", "bash", theme="monokai", line_numbers=False))
         # Attempt to add current user to docker group instruction
         if platform.system() == "Linux":
             console.print("[yellow]💡 You might need to add your user to the 'docker' group:[/yellow]")
@@ -154,7 +162,6 @@ def check_docker_installed():
     except docker.errors.DockerException as e:
         console.print(f"[bold red]❌ Docker is installed, but the Docker daemon is not responding or permission issue.[/bold red]")
         console.print(f"[red]   Error: {e}[/red]")
-        console.print("[cyan]ℹ️  Ensure the Docker service is running. For systemd systems: sudo systemctl start docker[/cyan]")
         if platform.system() == "Linux" and "permission denied" in str(e).lower():
              console.print("[yellow]💡 This might be a permission issue. Did you add your user to the 'docker' group and relogged?[/yellow]")
              console.print(Syntax("sudo usermod -aG docker ${USER}", "bash", theme="monokai", line_numbers=False, background_color="default"))
@@ -170,7 +177,7 @@ def check_docker_compose_installed():
         console.print("[cyan]   Refer to the official Docker Compose installation guide for your system.[/cyan]")
         # Example for plugin install on Linux, adjust if needed
         console.print("[cyan]   Example for Linux (Docker Compose plugin):[/cyan]")
-        console.print(Syntax("sudo apt update && sudo apt install docker-compose-plugin -y", "bash", theme="monokai", line_numbers=False, background_color="default"))
+        console.print(Syntax("sudo apt update && sudo apt install docker-compose-plugin -y", "bash", theme="monokai", line_numbers=False))
         sys.exit(1)
     console.print("[bold green]✅ Docker Compose is installed.[/bold green]")
     return True
@@ -195,7 +202,7 @@ def start_tor_services():
             ["docker-compose", "-f", DOCKER_COMPOSE_FILE, "up", "-d", "--build", "--quiet-pull"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
-        stdout, stderr = process.communicate(timeout=180) # Increased timeout for image pulls
+        stdout, stderr = process.communicate(timeout=180) # Increased timeout
 
         if process.returncode == 0:
             console.print("[bold green]✅ Tor services started successfully via docker-compose.[/bold green]")
@@ -221,19 +228,19 @@ def stop_tor_services():
     """Stops the Tor services using docker-compose."""
     console.print("[blue]🛑 Stopping Tor services via docker-compose...[/blue]")
     if not os.path.exists(DOCKER_COMPOSE_FILE):
-        console.print(f"[yellow]⚠️ docker-compose.yml not found at {DOCKER_COMPOSE_FILE}. Cannot stop services.[/yellow]")
-        return False # Indicate that services couldn't be stopped as expected
+        console.print(f"[yellow]⚠️ docker-compose.yml not found. Cannot stop services if they were started by this script.[/yellow]")
+        return False
     try:
         # Stop and remove containers, networks, volumes, and images created by `up`.
         # Using --quiet-pull to reduce verbosity if any pull happens during down (less likely)
         process = subprocess.Popen(
-            ["docker-compose", "-f", DOCKER_COMPOSE_FILE, "down", "--remove-orphans"], # --remove-orphans is good practice
+            ["docker-compose", "-f", DOCKER_COMPOSE_FILE, "down", "--remove-orphans"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         stdout, stderr = process.communicate(timeout=120)
 
         if process.returncode == 0:
-            console.print("[bold green]✅ Tor services stopped and cleaned up successfully.[/bold green]")
+            console.print("[bold green]✅ Tor services stopped and cleaned up successfully via docker-compose.[/bold green]")
             return True
         else:
             console.print("[bold red]❌ Failed to stop Tor services via docker-compose.[/bold red]")
@@ -275,7 +282,7 @@ def get_tor_ports_from_compose():
     running_container_names = []
     try:
         for container in client.containers.list():
-            # Names might include project prefix, e.g., views_torproxy1_1
+            # Names might include project prefix, e.g., "views_torproxy1_1"
             # We check if any part of the configured name is in the running container name
             for cfg in ports_config:
                 if cfg["name"] in container.name: # A bit loose, but simple
@@ -284,26 +291,29 @@ def get_tor_ports_from_compose():
     except docker.errors.DockerException:
         console.print("[yellow]⚠️ Could not list Docker containers. Assuming ports based on docker-compose.yml definition.[/yellow]")
         # Fallback to assuming all defined ports are available if Docker API fails
-        return [(cfg["socks_port"], cfg["control_port"], cfg["name"]) for cfg in ports_config]
-
-    for config in ports_config:
-        if config["name"] in running_container_names:
-            # Basic check: is SOCKS port connectable? 
-            # This is a simple check; stem connection is a better verification for control port later
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1) # Quick timeout
-                if s.connect_ex(("127.0.0.1", config["socks_port"])) == 0:
-                    console.print(f"  [green]✅ Port {config['socks_port']} (SOCKS for {config['name']}) is connectable.[/green]")
-                    active_proxies.append((config["socks_port"], config["control_port"], config["name"]))
+        for cfg in ports_config:
+             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(("127.0.0.1", cfg["socks_port"])) == 0:
+                    console.print(f"  [green]✅ Port {cfg['socks_port']} (SOCKS for {cfg['name']}) is connectable (assuming from compose).[/green]")
+                    active_proxies.append((cfg["socks_port"], cfg["control_port"], cfg["name"]))
                 else:
-                    console.print(f"  [yellow]⚠️ Port {config['socks_port']} (SOCKS for {config['name']}) is NOT connectable. Service might be down.[/yellow]")
-        else:
-            console.print(f"  [yellow]⚠️ Service {config['name']} does not appear to be running according to Docker. Skipping its ports.[/yellow]")
+                    console.print(f"  [yellow]⚠️ Port {cfg['socks_port']} (SOCKS for {cfg['name']}) is NOT connectable (assuming from compose).[/yellow]")
+    else:
+        console.print("[yellow]⚠️ Python 'docker' library not loaded. Verifying ports by simple connection test only.[/yellow]")
+        # Fallback: if docker lib is not loaded, just try to connect
+        for cfg in ports_config:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(("127.0.0.1", cfg["socks_port"])) == 0:
+                    console.print(f"  [green]✅ Port {cfg['socks_port']} (SOCKS for {cfg['name']}) is connectable.[/green]")
+                    active_proxies.append((cfg["socks_port"], cfg["control_port"], cfg["name"]))
+                else:
+                    console.print(f"  [yellow]⚠️ Port {cfg['socks_port']} (SOCKS for {cfg['name']}) is NOT connectable.[/yellow]")
             
     if not active_proxies:
-        console.print("[bold red]❌ No active and connectable Tor proxies found based on docker-compose.yml configuration.[/bold red]")
-    
-    return active_proxies # Returns list of (socks_port, control_port, service_name)
+        console.print("[bold red]❌ No active and connectable Tor proxies found from Docker Compose configuration.[/bold red]")
+    return active_proxies
 
 # --- TOR CONTROL FUNCTIONS (using stem) ---
 def test_tor_connection(socks_port, service_name="<unknown service>"):
@@ -427,9 +437,9 @@ def ensure_geckodriver_available():
         console.print(f"[cyan]ℹ️  Please download geckodriver manually: https://github.com/mozilla/geckodriver/releases/latest[/cyan]")
         return
 
-    console.print(f"[cyan]ℹ️  Fetching latest geckodriver release info from GitHub API...[/cyan]")
+    console.print(f"[cyan]ℹ️  Fetching latest geckodriver release info for {asset_identifier}...[/cyan]")
     gecko_url = None
-    gecko_asset_name = None # To store the actual asset filename
+    gecko_asset_name = None
     try:
         with urllib.request.urlopen(GECKO_API_URL, timeout=15) as response:
             release_data = json.load(response)
@@ -443,51 +453,60 @@ def ensure_geckodriver_available():
                 break
         
         if not gecko_url:
-            console.print(f"[bold red]❌ Could not find a download URL for {asset_identifier} in the latest release.[/bold red]")
-            console.print(f"[cyan]ℹ️  Assets found: {[a.get('name') for a in release_data.get('assets', [])]}[/cyan]")
+            console.print(f"[bold red]❌ Could not find a download URL for {asset_identifier}. Assets: {[a.get('name') for a in release_data.get('assets', [])]}[/bold red]")
             console.print(f"[cyan]ℹ️  Please download geckodriver manually: https://github.com/mozilla/geckodriver/releases/latest[/cyan]")
             return
 
     except Exception as e_api:
-        console.print(f"[bold red]❌ Failed to fetch or parse geckodriver release info: {e_api}[/bold red]")
+        console.print(f"[bold red]❌ Failed to fetch geckodriver release info: {e_api}[/bold red]")
         console.print(f"[cyan]ℹ️  Please download geckodriver manually: https://github.com/mozilla/geckodriver/releases/latest[/cyan]")
         return
 
-    console.print(f"[cyan]ℹ️  Downloading geckodriver ({gecko_asset_name}) from: {gecko_url}[/cyan]")
-    archive_path = os.path.join(drivers_dir, gecko_asset_name) # Use the fetched asset name
+    console.print(f"[cyan]ℹ️  Downloading {gecko_asset_name} from: {gecko_url}[/cyan]")
+    archive_path = os.path.join(drivers_dir, gecko_asset_name)
     try:
+        # Ensure old archive is removed if it exists
+        if os.path.exists(archive_path): os.remove(archive_path)
+        if os.path.exists(gecko_local_path): os.remove(gecko_local_path) # Remove old binary too
+
         urllib.request.urlretrieve(gecko_url, archive_path)
+        console.print(f"[green]Download complete: {archive_path}[/green]")
     except Exception as e:
         console.print(f"[bold red]❌ Failed to download geckodriver: {e}[/bold red]")
-        console.print(f"[cyan]ℹ️  Please download geckodriver manually and place it in the PATH or in the ./drivers/ directory.[/cyan]")
         return
+
     try:
         if archive_path.endswith(".zip"):
             with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-                zip_ref.extractall(drivers_dir)
+                zip_ref.extractall(drivers_dir) # Extracts geckodriver.exe directly usually
         elif archive_path.endswith(".tar.gz"):
             with tarfile.open(archive_path, 'r:gz') as tar_ref:
+                # Common tar structure is just the binary, or a folder containing it.
+                # We need to extract the binary itself to drivers_dir/geckodriver
                 for member in tar_ref.getmembers():
-                    if member.name == geckodriver_name or member.name.endswith('/' + geckodriver_name):
-                        member.name = os.path.basename(member.name)
+                    if member.name == geckodriver_name or member.name.endswith('/' + geckodriver_name) : # Handles cases like "geckodriver" or "anyfolder/geckodriver"
+                        # Extract directly into drivers_dir, renaming if necessary
+                        member.name = os.path.basename(member.name) # Ensure it's just 'geckodriver' or 'geckodriver.exe'
                         tar_ref.extract(member, drivers_dir)
-                        break
-                else: # Fallback if specific extraction failed
-                    # Attempt to find geckodriver if it's in a subdirectory within the tar
+                        break 
+                else: # If not found by specific name, extract all and search
+                    tar_ref.extractall(drivers_dir)
                     found_in_tar = False
-                    tar_ref.extractall(drivers_dir) # Extract all first
                     for root, _, files in os.walk(drivers_dir):
                         if geckodriver_name in files:
-                            shutil.move(os.path.join(root, geckodriver_name), gecko_local_path)
-                            found_in_tar = True
-                            # Clean up potentially empty subdirectories if extractall created them
-                            if root != drivers_dir: 
+                            # Move it to the root of drivers_dir if it's in a subfolder
+                            if root != drivers_dir:
+                                shutil.move(os.path.join(root, geckodriver_name), gecko_local_path)
+                                # Clean up the (now possibly empty) subdirectory
                                 try:
-                                    os.rmdir(root) # Only if empty
-                                except OSError: pass 
+                                    if not os.listdir(root): # Check if empty
+                                        os.rmdir(root)
+                                except OSError: pass
+                            found_in_tar = True
                             break
                     if not found_in_tar:
-                         console.print(f"[yellow]⚠️  Geckodriver binary not found directly after tar.gz extraction. Check {drivers_dir}. You may need to move it manually.[/yellow]")
+                        console.print(f"[yellow]⚠️ Geckodriver binary ('{geckodriver_name}') not found directly after tar.gz extraction. Check '{drivers_dir}'.[/yellow]")
+                        # Do not return here, let it try to make it executable and add to PATH
 
 
         else:
@@ -500,28 +519,32 @@ def ensure_geckodriver_available():
     finally:
         try:
             if os.path.exists(archive_path): os.remove(archive_path)
-        except Exception:
-            pass
+        except Exception: pass
+
     if not os.path.exists(gecko_local_path):
-        console.print(f"[bold red]❌ geckodriver not found at {gecko_local_path} after extraction. Please check the archive contents or install manually.[/bold red]")
-        console.print(f"[cyan]ℹ️  Download geckodriver manually from: https://github.com/mozilla/geckodriver/releases/latest[/cyan]")
-        # Manual install instructions only, no QR code logic
-        try:
-            import webbrowser
-            webbrowser.open("https://github.com/mozilla/geckodriver/releases/latest")
-        except Exception:
-            pass
+        console.print(f"[bold red]❌ geckodriver binary not found at {gecko_local_path} after extraction attempt.[/bold red]")
         return
-    if os.name != "nt":
+
+    if os.name != "nt": # Make executable on non-Windows
         try:
-            os.chmod(gecko_local_path, os.stat(gecko_local_path).st_mode | stat.S_IEXEC)
+            st = os.stat(gecko_local_path)
+            os.chmod(gecko_local_path, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+            console.print(f"[green]ℹ️  Made {gecko_local_path} executable.[/green]")
         except Exception as e:
-            console.print(f"[yellow]⚠️  Could not set executable permission on geckodriver at {gecko_local_path}: {e}[/yellow]")
-    os.environ["PATH"] = drivers_dir + os.pathsep + os.environ["PATH"]
-    if shutil.which("geckodriver"):
-        console.print(f"[bold green]✅ geckodriver is ready and added to PATH for this session![/bold green]")
+            console.print(f"[yellow]⚠️  Could not set executable permission on {gecko_local_path}: {e}[/yellow]")
+
+    # Add to PATH if not already there (or re-add to prioritize)
+    abs_drivers_dir = os.path.abspath(drivers_dir)
+    path_dirs = [os.path.abspath(p) for p in os.environ["PATH"].split(os.pathsep)]
+    if abs_drivers_dir not in path_dirs:
+        os.environ["PATH"] = abs_drivers_dir + os.pathsep + os.environ["PATH"]
+        console.print(f"[green]ℹ️  Added {abs_drivers_dir} to PATH.[/green]")
+    
+    # Final check
+    if shutil.which("geckodriver") and os.path.exists(gecko_local_path) and os.path.samefile(shutil.which("geckodriver"), gecko_local_path):
+        console.print(f"[bold green]✅ geckodriver is ready and configured in PATH![/bold green]")
     else:
-        console.print(f"[yellow]⚠️  geckodriver downloaded and extracted to ./drivers/, and ./drivers/ added to PATH, but shutil.which() still cannot find it. Selenium might fail if geckodriver is not discoverable. Ensure {gecko_local_path} is executable and correctly named.[/yellow]")
+        console.print(f"[yellow]⚠️  geckodriver downloaded to {gecko_local_path}, but might not be correctly picked up by PATH. Selenium might fail. Ensure {abs_drivers_dir} is in your PATH and prioritized.[/yellow]")
 
 # --- ensure_tor_installed definition (moved up from below) ---
 def ensure_tor_installed():
@@ -649,6 +672,12 @@ def parse_args():
     parser.add_argument('--tor-port-range', type=str, default='9050-9100', help='Port range to scan for Tor SOCKS (system Tor mode, default: 9050-9100)')
     parser.add_argument('--tor-control-pass', type=str, default='', help='Tor control port password (if set in Docker or system Tor)')
     parser.add_argument('--auto', action='store_true', help='Automatically install/start dependencies without prompting')
+    parser.add_argument('video_urls', nargs='*', help='YouTube video URL(s) to process.')
+    parser.add_argument('--views-per-link', type=int, default=10, help='Number of views to generate per link (default: 10).')
+    parser.add_argument('--parallel-workers', type=int, default=0, help='Number of parallel view workers (0=auto-adjust to available proxies, max 10).')
+    parser.add_argument('--min-watch-time', type=int, default=45, help='Minimum watch time in seconds (default: 45).')
+    parser.add_argument('--max-watch-time', type=int, default=120, help='Maximum watch time in seconds (default: 120).')
+    parser.add_argument('--dry-run', action='store_true', help='Simulate actions without actual viewing or IP rotation.')
     return parser.parse_args()
 
 # --- AUTO-INSTALL/START HELPERS ---
@@ -811,7 +840,11 @@ def main():
     args = parse_args()
     auto_mode = getattr(args, 'auto', False)
     onboarding_welcome()
+    # Always show the banner after onboarding
+    print_banner()
     if not ensure_venv(auto=auto_mode):
+        # If venv is not ready, tell the user what to do next
+        console.print("[yellow]Activate your virtual environment and re-run: [bold]python main.py[/bold][/yellow]")
         return
     # ... rest of main ...
     # Before Tor/Firefox checks:
@@ -823,11 +856,16 @@ def main():
     if not is_tor_running(9050):
         start_service('tor', auto=auto_mode)
     # ... rest of main ...
+    # At the end of main, if setup is complete, print what to do next if not running core logic
+    # (If core logic is not implemented here, add a message)
+    console.print("[bold green]Setup complete! To start generating views, provide YouTube URLs as arguments or follow the prompts.[/bold green]")
+    console.print("[cyan]Example: python main.py https://www.youtube.com/watch?v=your_video_id[/cyan]")
+    console.print("[cyan]Or run with --help for all options: python main.py --help[/cyan]")
 
 # --- Main execution block `if __name__ == "__main__":` --- 
 if __name__ == "__main__":
     # Ensure stop_tor_services is called on exit, even if errors occur early
-    services_started_successfully = False
+    services_started_by_script = False
     try:
         # Initial Setup Checks (Python Env, Dependencies, Geckodriver, Docker)
         spinner_message("Checking virtual environment...", require_venv_or_exit)
@@ -835,45 +873,33 @@ if __name__ == "__main__":
         spinner_message("Checking Docker installation...", check_docker_installed)
         spinner_message("Checking Docker Compose installation...", check_docker_compose_installed)
         spinner_message("Ensuring geckodriver is available...", ensure_geckodriver_available)
-        
         console.print("[blue]--- KADDU YT-VIEWS Dockerized Tor Setup ---[/blue]")
         # Start Tor services defined in docker-compose.yml
         if not start_tor_services():
             console.print("[bold red]❌ Failed to start Dockerized Tor services. Exiting.[/bold red]")
+            console.print("[yellow]You can try running: [bold]docker-compose up -d --build[/bold] manually, then re-run [bold]python main.py[/bold][/yellow]")
             sys.exit(1)
-        services_started_successfully = True # Mark that services were started
-
+        services_started_by_script = True # Mark that services were started
         # If all setup passes, proceed to main application logic
         main() # Main function now handles user input, validation, and view generation
-
     except KeyboardInterrupt:
-        console.print("[bold yellow]\\n\\n🛑 Process interrupted by user (Ctrl+C). Signaling stop...[/bold yellow]")
-        stop_event_global.set() 
-        console.print("[blue]Please wait for graceful shutdown...[/blue]")
-        # time.sleep(2) # Allow threads to notice event, if any are long-running before cleanup
-    except SystemExit as e: # Catch sys.exit() to allow finally block to run
-        if e.code != 0:
-            console.print(f"[bold red]😢 Script exited with code: {e.code}.[/bold red]")
-        # else: normal exit (e.g. from dry_run), no special message needed.
-    except Exception as e_critical:
-        console.print(f"[bold red]\\n❌ --- CRITICAL UNEXPECTED ERROR --- [/bold red]")
-        console.print(f"[red]Type: {type(e_critical).__name__}, Details: {e_critical}[/red]")
-        console.print_exception(show_locals=False) 
-        console.print(f"[cyan]If the problem persists, please report this issue on GitHub with the traceback above.[/cyan]")
+        console.print("[bold yellow]\n🛑 Process interrupted by user (Ctrl+C). Signaling stop...[/bold yellow]")
+        stop_event_global.set()
+        console.print("[blue]Please wait for graceful shutdown of active workers...[/blue]")
+        time.sleep(3)
+    except SystemExit as e: # Catch sys.exit() from core_logic
+        if e.code != 0: console.print(f"[bold red]😢 Script exited with code: {e.code}.[/bold red]")
+    except Exception as e_core:
+        console.print(f"[bold red]\n❌ --- CRITICAL UNEXPECTED ERROR DURING CORE LOGIC --- [/bold red]")
+        console.print(f"[red]Type: {type(e_core).__name__}, Details: {e_core}[/red]")
+        console.print_exception(show_locals=False)
     finally:
-        console.print("[blue]Initiating final cleanup...[/blue]")
+        console.print("\n[blue]Initiating final cleanup...[/blue]")
         stop_event_global.set() # Ensure stop event is set for any lingering threads
-        
-        if services_started_successfully:
-            stop_tor_services() # Stop Dockerized Tor services
-        else:
-            console.print("[yellow]Skipped stopping Tor services as they were not confirmed to be started by this script's session.[/yellow]")
-        
-        # Old lock path removal - no longer needed as Tor is Dockerized
-        # if os.path.exists(LOCK_PATH):
-        #     try: os.remove(LOCK_PATH)
-        #     except Exception as e_lock_del: console.print(f"[yellow]Warning: Could not delete lock file {LOCK_PATH}: {e_lock_del}[/yellow]")
-        
-        console.print("[bold green]✅ KADDU YT-VIEWS program finished and cleanup complete.[/bold green]")
+        if services_started_by_script:
+            pass
+        console.print("[bold green]✅ KADDU YT-VIEWS program finished.[/bold green]")
+        console.print("[yellow]If you just completed setup, activate your venv and re-run: [bold]python main.py[/bold][/yellow]")
+        console.print("[cyan]For help, run: python main.py --help[/cyan]")
 
 # --- END OF SCRIPT ---

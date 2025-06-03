@@ -1,141 +1,196 @@
-# KADDU YT-VIEWS SYSTEM
+# KADDU YT-VIEWS: Automated YouTube View Generator
 
-A robust, automated, and human-like YouTube view generator using Tor proxies. Supports both Dockerized Tor (recommended), system Tor, and Termux (Android) for maximum flexibility.
+**Automate YouTube video views using free Tor proxies. Works on Linux, Docker, and Termux (Android). No proxy lists or paid services needed.**
 
-## Features
-- **Automatic Free Proxy IP Rotation:** Uses Tor for all proxying and IP rotation—no need to supply or buy proxy IPs. Works in Docker, system Tor, and Termux.
-- **Dockerized or System Tor Proxy Management:** Use Docker Compose for isolated, scalable Tor proxies, or fall back to system Tor if Docker is unavailable.
-- **Termux Support:** Works on Android via Termux with Tor installed via `pkg`.
-- **Automatic Geckodriver Management:** Ensures Selenium can always find the right driver.
-- **Rich CLI Output:** Uses the `rich` library for beautiful, readable terminal output.
-- **Parallel View Generation:** Distributes view tasks across multiple Tor proxies for speed and reliability.
-- **IP Rotation:** Uses the `stem` library to programmatically rotate Tor identities, with optional control port authentication.
-- **Smart Human-like Behavior:** Randomized view durations, start delays, user-agents, scrolling, and play actions.
-- **User-Friendly CLI:** Interactive command-line interface with colors, emojis, and helpful prompts.
-- **Dry Run Mode:** Preview the actions the script will take without actually generating views.
+---
 
-## Onboarding & Automation
+## 🖼️ Banner
 
-- **Automatic Virtual Environment Creation:** If not running in a venv, the script will prompt to create one (or do so automatically with `--auto`).
-- **Automatic Python Dependency Installation:** Installs all required Python packages from `requirements.txt` if missing.
-- **Automatic System Package Installation:** If `tor` or `firefox` is missing, the script detects your package manager (`apt`, `dnf`, `yum`, `zypper`, `pacman`, or `pkg` for Termux) and offers to install them.
-- **Automatic Service Start:** If Tor is installed but not running, the script will offer to start it (or do so with `--auto`).
-- **Automated Geckodriver Download:** The script always ensures the correct geckodriver is available before using Selenium.
-- **Onboarding Welcome & Troubleshooting:** On first run, the script prints a friendly onboarding message, explains what it will do, and provides troubleshooting links if anything fails.
-- **`--auto` Flag:** Use `--auto` for fully non-interactive onboarding and setup.
-
-## Requirements
-- Python 3.8+
-- Firefox browser (for Selenium)
-- Docker (optional, but recommended for easy scaling)
-- Docker Compose (optional, for Docker mode)
-- Termux (Android) users: [Termux app](https://f-droid.org/packages/com.termux/) and Tor via `pkg install tor`
-- The following Python packages (see `requirements.txt`):
-  - selenium
-  - rich
-  - pyfiglet
-  - stem
-  - requests[socks]
-  - docker
-
-## Setup (updated)
-
-### 1. Run the script (auto-onboarding)
-```bash
-python main.py
 ```
-- The script will guide you through all setup steps, including venv creation, dependency install, and system package install/start.
-- Use `python main.py --auto` for full automation (no prompts).
-
-### 2. (Optional) Manual Setup
-- If you prefer, you can manually create a venv, install dependencies, and install/start Tor and Firefox as described in previous sections.
-
-### 1. Install Python dependencies
-```bash
-pip install -r requirements.txt
+(When you run the script, you'll see a cool ASCII banner from the ASCII file!)
 ```
 
-### 2. (Recommended) Dockerized Tor Proxies
-- Edit `docker-compose.yml` to scale up proxies (copy/paste service blocks and increment port numbers).
-- Start the proxies:
-```bash
-docker-compose up -d
-```
+---
 
-### 3. (Alternative) System Tor (Linux)
-- Start your system Tor service (e.g., `sudo service tor start`).
-- To use multiple system Tor instances, configure your `torrc` to listen on multiple SOCKS ports, or run multiple Tor processes on different ports.
+## 🚀 Quick Start (All Platforms)
 
-### 4. (Alternative) Termux (Android)
-- Install [Termux](https://f-droid.org/packages/com.termux/) from F-Droid.
-- In Termux, install Tor:
-```bash
-pkg update && pkg upgrade
-pkg install tor
-```
-- Start Tor in Termux:
-```bash
-tor &
-```
-- The default SOCKS port is 9050. The script will auto-detect and use it.
+1. **Clone the repository:**
+   ```bash
+   git clone <your_repo_url>
+   cd <repo_folder>
+   ```
 
-## Usage
+2. **Create and activate a Python virtual environment:**
+   - **Linux/macOS:**
+     ```bash
+     python3 -m venv .venv
+     source .venv/bin/activate
+     ```
+   - **Windows:**
+     ```cmd
+     python -m venv .venv
+     .venv\Scripts\activate.bat
+     ```
+   - **Termux (Android):**
+     ```bash
+     python -m venv .venv
+     source .venv/bin/activate
+     ```
 
-### Basic usage (auto-detects Docker, system Tor, or Termux):
-```bash
-python main.py
-```
+3. **Install Python dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### Force Docker mode:
-```bash
-python main.py --use-docker
-```
+4. **Run the script:**
+   ```bash
+   python main.py
+   ```
+   - The script will guide you through setup, check for Tor, Docker, and Firefox, and tell you what to do next.
 
-### Force system Tor mode:
-```bash
-python main.py --no-docker
-```
+---
 
-### Use Tor control port authentication:
-```bash
-python main.py --tor-control-pass your_password
-# or set the environment variable
-export TOR_CONTROL_PASS=your_password
-```
+## 🐧 Linux/Debian
 
-## CLI Flags
-- `--use-docker`: Force use of Dockerized Tor proxies (default: auto-detect)
-- `--no-docker`: Force use of system Tor only (ignore Docker)
-- `--tor-control-pass`: Tor control port password (if set in Docker or system Tor)
+### **Recommended: Docker Mode**
+- **Install Docker & Docker Compose:**
+  ```bash
+  sudo apt update && sudo apt install docker.io docker-compose -y
+  sudo systemctl enable docker --now
+  sudo usermod -aG docker $USER  # Log out and back in after this
+  ```
+- **Run the script:**
+  ```bash
+  python main.py --use-docker
+  ```
+  - The script will start multiple Tor proxies using Docker Compose.
 
-## How It Works
-- The script checks for Docker and Docker Compose, then starts the Tor proxies using `docker-compose` (if available and not disabled).
-- If Docker is not available or disabled, it scans for system Tor SOCKS ports (including Termux on Android).
-- Uses the `stem` library to control Tor and rotate IPs as needed, with optional control port authentication.
-- Selenium is configured to use the SOCKS proxy for each view worker.
-- All output is colorized and user-friendly via `rich`.
-- **You never need to supply proxy IPs—the script uses Tor for free, rotating proxy IPs automatically.**
+### **No Docker? Use System Tor**
+- **Install Tor and Firefox:**
+  ```bash
+  sudo apt update && sudo apt install tor firefox -y
+  sudo service tor start
+  ```
+- **Run the script:**
+  ```bash
+  python main.py --no-docker
+  ```
 
-## Scaling Proxies
-- **Docker mode:** Add more services to `docker-compose.yml` (e.g., `torproxy4`, `torproxy5`, etc.) with unique host port mappings.
-- **System Tor mode:** Start more Tor instances on different ports (edit your `torrc` or run multiple Tor processes).
-- **Termux:** By default, only one Tor instance is supported (port 9050), but advanced users can run multiple Tor processes on different ports.
+---
 
-## Troubleshooting
-- **Docker not found:** Make sure Docker is installed and your user is in the `docker` group.
-- **Tor proxies not starting:** Run `docker-compose ps` to check container status. Use `docker-compose logs` for details.
-- **System Tor not found:** Make sure Tor is running and listening on the expected ports.
-- **Termux:**
-  - Install Tor with `pkg install tor`
-  - Start Tor with `tor &`
-  - The default SOCKS port is 9050.
-- **Geckodriver issues:** The script will attempt to download and configure the correct driver automatically.
-- **Permission errors:** On Linux, you may need to run `sudo usermod -aG docker $USER` and log out/in.
-- **Selenium errors:** Ensure Firefox is installed and compatible with your geckodriver version.
-- **Control port authentication errors:** Make sure the password matches your Tor configuration (see `docker-compose.yml` or your `torrc`).
+## 📱 Termux (Android)
 
-## Security Note
-- The Tor control ports are exposed only to localhost by default. For extra security, set a password in `docker-compose.yml` or your system Tor config, and use `--tor-control-pass` or the `TOR_CONTROL_PASS` environment variable.
+1. **Install Python, Tor, and Firefox:**
+   ```bash
+   pkg update && pkg upgrade -y
+   pkg install python tor firefox -y
+   ```
+2. **Start Tor:**
+   ```bash
+   tor &
+   ```
+3. **Create and activate a venv, then run:**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   python main.py
+   ```
 
-## License
+---
+
+## 🐳 Docker Compose (Manual/Advanced)
+
+- To manually start Tor proxies:
+  ```bash
+  docker-compose up -d --build
+  ```
+- Then run the script with:
+  ```bash
+  python main.py --use-docker
+  ```
+
+---
+
+## ⚡ Usage Examples
+
+- **Interactive, auto-detect mode:**
+  ```bash
+  python main.py
+  ```
+- **Use Docker, auto-confirm all prompts, and process a video:**
+  ```bash
+  python main.py --use-docker --auto https://www.youtube.com/watch?v=your_video_id --views-per-link 5
+  ```
+- **Use system Tor on specific ports:**
+  ```bash
+  python main.py --no-docker --tor-ports 9050,9052 --parallel-workers 2 https://youtu.be/video1 https://youtu.be/video2
+  ```
+- **Show all options:**
+  ```bash
+  python main.py --help
+  ```
+
+---
+
+## 📝 What To Do If...
+
+- **Script says to activate your venv:**  
+  Run:
+  ```bash
+  source .venv/bin/activate
+  # or on Windows:
+  .venv\Scripts\activate.bat
+  ```
+- **Docker fails to start:**  
+  Run:
+  ```bash
+  docker-compose up -d --build
+  python main.py
+  ```
+- **You want to generate views:**  
+  Provide YouTube URLs as arguments:
+  ```bash
+  python main.py https://www.youtube.com/watch?v=your_video_id
+  ```
+- **You want advanced options:**  
+  Run:
+  ```bash
+  python main.py --help
+  ```
+
+---
+
+## 🛠️ Troubleshooting
+
+- **Missing dependencies?**  
+  The script will prompt to install them. If it fails, install manually as above.
+- **Docker not running?**  
+  Start Docker Desktop or the Docker daemon.
+- **Tor not running?**  
+  Start Tor with `sudo service tor start` (Linux) or `tor &` (Termux).
+- **Permission errors?**  
+  On Linux, add your user to the `docker` group and log out/in.
+- **Geckodriver issues?**  
+  The script downloads it automatically. If it fails, download from [Mozilla Releases](https://github.com/mozilla/geckodriver/releases) and place in `drivers/`.
+- **Still stuck?**  
+  Run with `--auto` for full automation, or check the script's output for next steps.
+
+---
+
+## 💡 Tips
+
+- **No proxy lists needed:** Tor is used for free, automatic IP rotation.
+- **The script always tells you what to do next.**
+- **For best results, use Docker mode on Linux.**
+- **On Termux, always start Tor before running the script.**
+
+---
+
+## 📜 License
+
 MIT
+
+---
+
+**Disclaimer:**  
+This script is for educational purposes only. Automating views on YouTube may violate their Terms of Service. Use responsibly and at your own risk.
