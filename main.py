@@ -81,7 +81,8 @@ import requests  # Added for requests usage
 import docker # For interacting with Docker daemon
 from stem.control import Controller # For Tor control
 from stem import Signal # For NEWNYM signal
-from stem import SocketError, InvalidPassword, ControllerError  # Import exceptions directly
+from stem import SocketError, ControllerError  # Import exceptions directly
+from stem.connection import AuthenticationFailure  # Use for Tor control authentication errors (replaces InvalidPassword)
 from rich.spinner import Spinner
 from rich.text import Text
 from rich.syntax import Syntax
@@ -407,8 +408,8 @@ def renew_tor_identity(control_port, service_name="<unknown service>"):
             return True
     except SocketError as e:
         console.print(f"[red]❌ SocketError: Could not connect to Tor control port {control_port} for {service_name}. Is Tor service running and port mapped? {e}[/red]")
-    except InvalidPassword as e:
-        console.print(f"[red]❌ InvalidPassword: Authentication failed for Tor control port {control_port} for {service_name}. {e}[/red]")
+    except AuthenticationFailure as e:
+        console.print(f"[red]❌ AuthenticationFailure: Authentication failed for Tor control port {control_port} for {service_name}. {e}[/red]")
         console.print(f"[yellow]   If you set TOR_CONTROL_PASSWD in docker-compose.yml or system Tor, ensure it matches or handle authentication.[/yellow]")
     except ControllerError as e:
         console.print(f"[red]❌ ControllerError: Failed to send NEWNYM signal to Tor control port {control_port} for {service_name}: {e}[/red]")
@@ -586,7 +587,7 @@ def ensure_geckodriver_available():
 
 # --- ensure_tor_installed definition (moved up from below) ---
 def ensure_tor_installed():
-    console.print("[blue]�� Checking Tor installation...[/blue]")
+    console.print("[blue]🔄 Checking Tor installation...[/blue]")
 
     def is_command_available(command):
         return shutil.which(command) is not None

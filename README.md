@@ -106,6 +106,15 @@
 > **Note:** Docker does **not** run natively on unrooted Android. You have two main options:
 > - **Rooted device:** You can run Docker natively (with kernel patches and root, see below).
 > - **Unrooted device:** You can run Docker inside a Linux VM using QEMU or Proot (slower, but works without root).
+>
+> **⚠️ WARNING:** On Android 12 and newer, or some recent devices, Docker may not work due to kernel/cgroup changes. Before attempting native Docker, run the [Moby check-config.sh script](https://raw.githubusercontent.com/moby/moby/master/contrib/check-config.sh) in Termux to check kernel compatibility:
+> ```bash
+> pkg install wget tsu
+> wget https://raw.githubusercontent.com/moby/moby/master/contrib/check-config.sh
+> chmod +x check-config.sh
+> sudo ./check-config.sh
+> ```
+> If you see missing required configs in red, native Docker will likely not work. In that case, use the QEMU/Proot VM method instead.
 
 #### **1. Docker via QEMU/Proot/VM (No Root Required)**
 - You can run a full Linux distribution (e.g., Alpine, Ubuntu) inside Termux using QEMU or Proot, and then install Docker inside that VM.
@@ -219,6 +228,16 @@
   Start Docker Desktop or the Docker daemon.
 - **Tor not running?**  
   Start Tor with `sudo service tor start` (Linux) or `tor &` (Termux).
+  
+  **If the script can't connect to Tor:**
+  - Make sure Tor is running and listening on the expected port (default: 9050).
+  - You can check with:
+    ```bash
+    netstat -tuln | grep 9050
+    # or
+    ss -tuln | grep 9050
+    ```
+  - If not listening, restart Tor and check your configuration.
 - **Permission errors?**  
   On Linux, add your user to the `docker` group and log out/in.
 - **Geckodriver issues?**  
@@ -246,3 +265,5 @@ MIT
 
 **Disclaimer:**  
 This script is for educational purposes only. Automating views on YouTube may violate their Terms of Service. Use responsibly and at your own risk.
+
+> **Note:** If you installed Firefox via Snap or Flatpak (the default on some Ubuntu systems), Selenium/geckodriver may not work due to profile directory access issues. If you encounter problems, uninstall the Snap/Flatpak version and install the official Mozilla Firefox binary from [mozilla.org](https://www.mozilla.org/firefox/new/) or your package manager.
