@@ -64,7 +64,9 @@ def check_and_install_python_dependencies():
 # --- ENSURE ALL DEPENDENCIES ARE INSTALLED BEFORE IMPORTING THEM ---
 check_and_install_python_dependencies()
 
-# --- NOW SAFE TO IMPORT THIRD-PARTY MODULES ---
+# --- NOW SAFE TO IMPORT THIRD-PARTY MODULES AND SETUP CONSOLE ---
+from rich.console import Console
+console = Console()
 import shutil
 import platform
 import random
@@ -79,7 +81,7 @@ import requests  # Added for requests usage
 import docker # For interacting with Docker daemon
 from stem.control import Controller # For Tor control
 from stem import Signal # For NEWNYM signal
-from rich.console import Console
+from stem import SocketError, InvalidPassword, ControllerError  # Import exceptions directly
 from rich.spinner import Spinner
 from rich.text import Text
 from rich.syntax import Syntax
@@ -403,12 +405,12 @@ def renew_tor_identity(control_port, service_name="<unknown service>"):
             console.print(f"[bold green]🔄 Requested new Tor identity (NEWNYM) for {service_name} on control port {control_port}.[/bold green]")
             time.sleep(5) # Give Tor some time to establish a new circuit
             return True
-    except stem.SocketError as e:
+    except SocketError as e:
         console.print(f"[red]❌ SocketError: Could not connect to Tor control port {control_port} for {service_name}. Is Tor service running and port mapped? {e}[/red]")
-    except stem.InvalidPassword as e: # Or stem.IncorrectPassword depending on stem version
+    except InvalidPassword as e:
         console.print(f"[red]❌ InvalidPassword: Authentication failed for Tor control port {control_port} for {service_name}. {e}[/red]")
         console.print(f"[yellow]   If you set TOR_CONTROL_PASSWD in docker-compose.yml or system Tor, ensure it matches or handle authentication.[/yellow]")
-    except stem.ControllerError as e:
+    except ControllerError as e:
         console.print(f"[red]❌ ControllerError: Failed to send NEWNYM signal to Tor control port {control_port} for {service_name}: {e}[/red]")
     except Exception as e:
         console.print(f"[red]❌ An unexpected error occurred with Tor control port {control_port} for {service_name}: {e}[/red]")
@@ -584,7 +586,7 @@ def ensure_geckodriver_available():
 
 # --- ensure_tor_installed definition (moved up from below) ---
 def ensure_tor_installed():
-    console.print("[blue]🔄 Checking Tor installation...[/blue]")
+    console.print("[blue]�� Checking Tor installation...[/blue]")
 
     def is_command_available(command):
         return shutil.which(command) is not None

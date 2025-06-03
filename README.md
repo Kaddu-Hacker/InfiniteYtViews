@@ -4,75 +4,33 @@
 
 ---
 
-## 🚀 Docker Quick Start (Recommended)
-
-**1. Install Docker & Docker Compose:**
-
-- **Linux:**
-  ```bash
-  sudo apt update && sudo apt install docker.io docker-compose-plugin -y
-  sudo systemctl enable docker --now
-  sudo usermod -aG docker $USER  # Log out and back in after this
-  ```
-- **Windows/macOS:**  
-  Download and install Docker Desktop from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
-
-**2. Start Docker:**
-- **Linux:**  
-  ```bash
-  sudo systemctl start docker
-  ```
-- **Windows/macOS:**  
-  Open Docker Desktop from your applications menu.
-
-**3. (Linux only) Add your user to the docker group:**
-  ```bash
-  sudo usermod -aG docker $USER
-  # Log out and back in for this to take effect!
-  ```
-
-**4. Run the script in Docker mode:**
-  ```bash
-  python main.py --use-docker
-  ```
-
-**5. If prompted, start Docker Compose services:**
-  ```bash
-  docker-compose up -d --build
-  ```
+## ✨ Features
+- Fully automated YouTube view generation using Tor for free, rotating proxies
+- Works on Linux, Docker, and Termux (Android)
+- No need for proxy lists or paid services
+- Supports both system Tor and Dockerized Tor proxies
+- User-friendly onboarding and troubleshooting
+- Plug-and-play: script auto-installs/starts dependencies and guides you
 
 ---
 
-## 🚀 Quick Start (All Platforms)
+## 🚀 Quick Start (Universal)
 
 1. **Clone the repository:**
    ```bash
    git clone <your_repo_url>
    cd <repo_folder>
    ```
-
 2. **Create and activate a Python virtual environment:**
-   - **Linux/macOS:**
-     ```bash
-     python3 -m venv .venv
-     source .venv/bin/activate
-     ```
-   - **Windows:**
-     ```cmd
-     python -m venv .venv
-     .venv\Scripts\activate.bat
-     ```
-   - **Termux (Android):**
-     ```bash
-     python -m venv .venv
-     source .venv/bin/activate
-     ```
-
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   # On Windows: .venv\Scripts\activate.bat
+   ```
 3. **Install Python dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
-
 4. **Run the script:**
    ```bash
    python main.py
@@ -81,12 +39,12 @@
 
 ---
 
-## 🐧 Linux/Debian
+## 🐧 Linux (Debian/Ubuntu)
 
 ### **Recommended: Docker Mode**
 - **Install Docker & Docker Compose:**
   ```bash
-  sudo apt update && sudo apt install docker.io docker-compose -y
+  sudo apt update && sudo apt install docker.io docker-compose-plugin -y
   sudo systemctl enable docker --now
   sudo usermod -aG docker $USER  # Log out and back in after this
   ```
@@ -109,8 +67,24 @@
 
 ---
 
+## 🪟 Windows/macOS
+
+- **Install [Docker Desktop](https://www.docker.com/products/docker-desktop)**
+- **Start Docker Desktop from your applications menu**
+- **Run the script:**
+  ```bash
+  python main.py --use-docker
+  ```
+- **If prompted, start Docker Compose services:**
+  ```bash
+  docker-compose up -d --build
+  ```
+
+---
+
 ## 📱 Termux (Android)
 
+### **A. System Tor (No Docker, No Root Required)**
 1. **Install Python, Tor, and Firefox:**
    ```bash
    pkg update && pkg upgrade -y
@@ -126,6 +100,52 @@
    source .venv/bin/activate
    python main.py
    ```
+
+### **B. Docker in Termux (Advanced, With or Without Root)**
+
+> **Note:** Docker does **not** run natively on unrooted Android. You have two main options:
+> - **Rooted device:** You can run Docker natively (with kernel patches and root, see below).
+> - **Unrooted device:** You can run Docker inside a Linux VM using QEMU or Proot (slower, but works without root).
+
+#### **1. Docker via QEMU/Proot/VM (No Root Required)**
+- You can run a full Linux distribution (e.g., Alpine, Ubuntu) inside Termux using QEMU or Proot, and then install Docker inside that VM.
+- See these up-to-date guides:
+  - [cyberkernelofficial/docker-in-termux (QEMU, no root)](https://github.com/cyberkernelofficial/docker-in-termux)
+  - [Slick9000/docker-on-termux (QEMU/Proot, no root)](https://github.com/Slick9000/docker-on-termux)
+- **Summary:**
+  1. Install QEMU and required packages in Termux:
+     ```bash
+     pkg update && pkg install qemu-utils qemu-system-x86_64-headless wget -y
+     ```
+  2. Download a Linux ISO (e.g., Alpine), create a VM, and boot it with QEMU.
+  3. Inside the VM, install Docker as you would on a normal Linux system.
+  4. Use Docker as usual **inside the VM** (no sudo needed).
+
+#### **2. Native Docker (Rooted Android, Patched Kernel)**
+- If your device is rooted and you have a compatible kernel, you can run Docker natively in Termux.
+- See this detailed guide: [FreddieOliveira's Gist: Docker on Android (root, kernel patches)](https://gist.github.com/FreddieOliveira/efe850df7ff3951cb62d74bd770dce27)
+- **Key points:**
+  - You need root access (use `tsu` or `su` in Termux)
+  - You may need to patch and recompile your kernel for full Docker support
+  - Some features (like overlayfs) may require additional kernel tweaks
+  - Once set up, you can run Docker **without sudo** by using a root shell
+
+#### **3. Using Docker Compose in Termux**
+- Once Docker is running (inside a VM or natively), you can use `docker-compose` as usual:
+  ```bash
+  docker-compose up -d --build
+  ```
+- Then run the script with:
+  ```bash
+  python main.py --use-docker
+  ```
+
+#### **4. Tips for Termux + Docker**
+- **No sudo in Termux:** Use `tsu` (if rooted) or run as root shell
+- **Unrooted:** Always use QEMU/Proot/VM method
+- **Rooted:** Follow the kernel patching guide for best results
+- **Performance:** QEMU/Proot is slower than native, but works on any device
+- **Troubleshooting:** See the linked guides for common issues and solutions
 
 ---
 
@@ -214,6 +234,7 @@
 - **The script always tells you what to do next.**
 - **For best results, use Docker mode on Linux.**
 - **On Termux, always start Tor before running the script.**
+- **For Docker in Termux, see the advanced guides above.**
 
 ---
 
