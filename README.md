@@ -37,7 +37,7 @@ npm install
 ### Usage (Interactive Mode)
 
 ```bash
-node bin/cli.js
+npms start
 ```
 
 You will be guided through:
@@ -56,7 +56,7 @@ All prompts use blue lines, arrows, and sensible defaults for a smooth experienc
 You can also provide options directly:
 
 ```bash
-node bin/cli.js -u "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -n 5 --headless --like-video --no-sound
+npm start -u "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -n 5 --headless --like-video --no-sound
 ```
 
 ## 📱 TERMUX/Android Setup
@@ -83,7 +83,7 @@ node bin/cli.js -u "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -n 5 --headless
    ```
 5. **Run the CLI:**
    ```bash
-   node bin/cli.js
+   npm start
    ```
 
 **Notes:**
