@@ -1,0 +1,51 @@
+{
+  "name": "yt-views-gen",
+  "version": "2.0.0",
+  "description": "A sophisticated Node.js CLI application that generates YouTube views using Puppeteer browser automation with Tor IP rotation and human-like behavior simulation.",
+  "main": "bin/cli.js",
+  "bin": {
+    "yt-views-gen": "./bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "test": "jest",
+    "postinstall": "node node_modules/puppeteer/install.js"
+  },
+  "keywords": [
+    "youtube",
+    "views",
+    "puppeteer",
+    "tor",
+    "automation",
+    "nodejs",
+    "cli",
+    "termux",
+    "infinite",
+    "kaddu-hacker"
+  ],
+  "author": "Kaddu-Hacker & AI Assistant",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^14.0.0",
+    "figlet": "^1.8.1",
+    "inquirer": "^8.2.6",
+    "ora": "^6.1.2",
+    "node-fetch": "^2.7.0",
+    "puppeteer": "^21.3.8",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.1",
+    "socks-proxy-agent": "^7.0.0",
+    "jest": "^29.7.0",
+    "tor-request": "^3.1.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kaddu-Hacker/InfiniteYtViews/"
+  }
+}
