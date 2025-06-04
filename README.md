@@ -37,7 +37,7 @@ npm install
 ### Usage (Interactive Mode)
 
 ```bash
-npms start
+npm start
 ```
 
 You will be guided through:
@@ -56,7 +56,7 @@ All prompts use blue lines, arrows, and sensible defaults for a smooth experienc
 You can also provide options directly:
 
 ```bash
-npm start -u "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -n 5 --headless --like-video --no-sound
+npm start -- -u "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -n 5 --headless --like-video --no-sound
 ```
 
 ## 📱 TERMUX/Android Setup

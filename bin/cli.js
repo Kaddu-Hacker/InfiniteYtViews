@@ -1,9 +1,8 @@
-#!/usr/bin/env node
-
-const { Command } = require('commander');
-const inquirer = require('inquirer');
-const chalk = require('chalk');
-const {
+import { Command } from 'commander';
+import inquirer from 'inquirer';
+import chalk from 'chalk';
+import figlet from 'figlet';
+import {
   showBanner,
   createSpinner,
   logSuccess,
@@ -12,13 +11,13 @@ const {
   logDebug,
   logWarning,
   showCustomBanner,
-} = require('../lib/ui');
-const {
+} from '../lib/ui.js';
+import {
   validateYouTubeUrl,
   delay,
   getRandomDelay,
-} = require('../lib/utils');
-const {
+} from '../lib/utils.js';
+import {
   initializeAudio,
   playStartupSound,
   playSuccessSound,
@@ -26,11 +25,11 @@ const {
   playCompletionSound,
   setAudioEnabled,
   getAudioStats
-} = require('../lib/audio');
-const actions = require('../lib/actions');
-const tor = require('../lib/tor');
-const proxyPool = require('../lib/proxyPool');
-const browser = require('../lib/browser');
+} from '../lib/audio.js';
+import actions from '../lib/actions.js';
+import tor from '../lib/tor.js';
+import proxyPool from '../lib/proxyPool.js';
+import browser from '../lib/browser.js';
 
 const program = new Command();
 
@@ -61,7 +60,8 @@ async function main() {
   setAudioEnabled(!cliOpts.noSound);
 
   await showBanner('YT Views Gen', 'Slant');
-  await showCustomBanner('KAADU', 'Yt-Views');
+  // Show your name in a red banner using figlet directly
+  console.log(require('chalk').red(figlet.textSync('KAADU', { font: 'ANSI Shadow' })));
   if (!cliOpts.noSound) {
   }
 
