@@ -11,6 +11,7 @@ import {
   logDebug,
   logWarning,
   showCustomBanner,
+  setLogLevel,
 } from '../lib/ui.js';
 import {
   validateYouTubeUrl,
@@ -26,10 +27,14 @@ import {
   setAudioEnabled,
   getAudioStats
 } from '../lib/audio.js';
-import actions from '../lib/actions.js';
-import tor from '../lib/tor.js';
-import proxyPool from '../lib/proxyPool.js';
-import browser from '../lib/browser.js';
+import * as actions from '../lib/actions.js';
+import * as tor from '../lib/tor.js';
+import * as proxyPool from '../lib/proxyPool.js';
+import * as browser from '../lib/browser.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
 
 const program = new Command();
 
@@ -52,12 +57,13 @@ async function main() {
 
   // Set log level based on debug flag immediately
   if (cliOpts.debug) {
-    require('../lib/ui').setLogLevel('debug');
+    setLogLevel('debug');
     logDebug('Debug mode enabled via CLI flag.');
   }
 
-  // Initialize audio system based on CLI flag first
+  // Initialize audio system FIRST, based on CLI flag, then allow user to override
   setAudioEnabled(!cliOpts.noSound);
+  await initializeAudio();
 
   await showBanner('YT Views Gen', 'Slant');
   // Show your name in a red banner using figlet directly
@@ -252,7 +258,7 @@ async function main() {
   
   // Update audio enabled status based on final decision
   setAudioEnabled(finalOptions.enableSound);
-  if (finalOptions.enableSound && !cliOpts.noSound && main) { // Check main to avoid issues during very early startup/banner
+  if (finalOptions.enableSound && main) { // Check main to avoid issues during very early startup/banner
       await playStartupSound(); // Play startup sound after prompts if sound is enabled
   } else if (!finalOptions.enableSound) {
       logInfo(chalk.yellow('Sound effects are disabled for this session.'));
@@ -504,6 +510,15 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-if (require.main === module) {
-  main();
+// ESM-compatible check to run main()
+if (process.argv[1] === __filename) {
+  main().catch(err => {
+    logError('Critical error in main execution:');
+    if (err && err.stack) {
+      logError(err.stack);
+    } else {
+      logError(String(err));
+    }
+    process.exit(1);
+  });
 }
