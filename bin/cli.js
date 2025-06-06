@@ -33,6 +33,9 @@ import * as proxyPool from '../lib/proxyPool.js';
 import * as browser from '../lib/browser.js';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -52,6 +55,21 @@ program
   .option('--no-sound', 'Disable sound effects', false)
   .parse(process.argv);
 
+// Promisify figlet.text for async/await usage
+const figletAsync = promisify(figlet.text);
+
+// Helper to load backend from config/paths.json
+function getBackend() {
+  try {
+    const configPath = path.resolve('config/paths.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      return config.backend || 'Chromium/Puppeteer';
+    }
+  } catch (e) {}
+  return 'Chromium/Puppeteer';
+}
+
 async function main() {
   const cliOpts = program.opts();
 
@@ -65,9 +83,12 @@ async function main() {
   setAudioEnabled(!cliOpts.noSound);
   await initializeAudio();
 
+  // Show a big 'KAADDU' banner above the main banner using figlet and chalk
+  const kaaduBanner = await figletAsync('KAADDU', { font: 'ANSI Shadow' });
+  console.log('\n' + chalk.red(kaaduBanner) + '\n');
+  const ytBanner = await figletAsync('YT Views Gen', 'Slant');
+  console.log(chalk.cyan(ytBanner));
   await showBanner('YT Views Gen', 'Slant');
-  // Show your name in a red banner using figlet directly
-  console.log(require('chalk').red(figlet.textSync('KAADU', { font: 'ANSI Shadow' })));
   if (!cliOpts.noSound) {
   }
 
@@ -91,9 +112,12 @@ async function main() {
       message: chalk.cyanBright('➡️ Enter the YouTube video URL:'),
       default: cliOpts.url, // Use CLI option as default if provided
       validate: (input, answers) => {
+        // Fix: answers may be undefined or missing contentType if prompt order or CLI input skips previous questions
         if (!validateYouTubeUrl(input)) return chalk.red('❌ Please enter a valid YouTube URL.');
-        if (answers.contentType === 'shorts' && !/\/shorts\//.test(input)) return chalk.red('❌ This is not a Shorts URL.');
-        if (answers.contentType === 'video' && /\/shorts\//.test(input)) return chalk.red('❌ This is a Shorts URL, not a regular video.');
+        if (answers && typeof answers === 'object') {
+          if (answers.contentType === 'shorts' && !/\/shorts\//.test(input)) return chalk.red('❌ This is not a Shorts URL.');
+          if (answers.contentType === 'video' && /\/shorts\//.test(input)) return chalk.red('❌ This is a Shorts URL, not a regular video.');
+        }
         return true;
       },
       when: !cliOpts.url || !validateYouTubeUrl(cliOpts.url), // Ask if not provided or invalid
@@ -121,7 +145,15 @@ async function main() {
       message: chalk.cyanBright('➡️ Maximum watch time per view (seconds):'),
       default: 60,
       validate: (input, answers) => {
-        const minWatch = answers.minWatchSeconds || (questions.find(q => q.name === 'minWatchSeconds')).default;
+        // Defensive: answers may be undefined or missing minWatchSeconds
+        let minWatch = 30; // fallback default
+        if (answers && typeof answers === 'object' && typeof answers.minWatchSeconds === 'number') {
+          minWatch = answers.minWatchSeconds;
+        } else {
+          // fallback to the default in the question definition if available
+          const minQ = questions.find(q => q.name === 'minWatchSeconds');
+          if (minQ && typeof minQ.default === 'number') minWatch = minQ.default;
+        }
         return (input >= minWatch && input <= 700) || chalk.red(`❌ Must be >= min watch time (${minWatch}s) and <= 700.`);
       },
       filter: Number,
@@ -217,7 +249,15 @@ async function main() {
       message: chalk.cyanBright('➡️ Maximum delay between view cycles (seconds):'),
       default: 30,
       validate: (input, answers) => {
-        const minCycle = answers.minCycleDelay || (questions.find(q => q.name === 'minCycleDelay')).default;
+        // Defensive: answers may be undefined or missing minCycleDelay
+        let minCycle = 10; // fallback default
+        if (answers && typeof answers === 'object' && typeof answers.minCycleDelay === 'number') {
+          minCycle = answers.minCycleDelay;
+        } else {
+          // fallback to the default in the question definition if available
+          const minQ = questions.find(q => q.name === 'minCycleDelay');
+          if (minQ && typeof minQ.default === 'number') minCycle = minQ.default;
+        }
         return (input >= minCycle && input <= 600) || chalk.red(`❌ Must be >= min cycle delay (${minCycle}s) and <= 600.`);
       },
       filter: Number,
@@ -340,6 +380,32 @@ async function main() {
   mainSpinner.start();
 
   try {
+    // Prompt for backend if not set in config or via CLI
+    let backend = getBackend();
+    if (!backend || !['Chromium/Puppeteer', 'Selenium (Chrome/Firefox)'].includes(backend)) {
+      const backendPrompt = await inquirer.prompt([{
+        type: 'list',
+        name: 'backend',
+        message: chalk.cyanBright('➡️ Which browser automation backend do you want to use?'),
+        choices: ['Chromium/Puppeteer', 'Selenium (Chrome/Firefox)'],
+        default: 'Chromium/Puppeteer',
+      }]);
+      backend = backendPrompt.backend;
+    }
+
+    // When launching the browser, pass backend and browserType
+    let browserType = 'chrome';
+    if (backend === 'Selenium (Chrome/Firefox)') {
+      const browserTypePrompt = await inquirer.prompt([{
+        type: 'list',
+        name: 'browserType',
+        message: chalk.cyanBright('➡️ Which browser do you want to use with Selenium?'),
+        choices: ['chrome', 'firefox'],
+        default: 'chrome',
+      }]);
+      browserType = browserTypePrompt.browserType;
+    }
+
     for (let i = 0; i < finalOptions.numViews; i++) {
       mainSpinner.updateText(`View ${i + 1}/${finalOptions.numViews} - Preparing...`);
       logInfo(`Starting view ${i + 1} of ${finalOptions.numViews} (${finalOptions.contentType.toUpperCase()})...`);
@@ -404,6 +470,7 @@ async function main() {
           headless: finalOptions.headless,
           proxy: currentProxyString,
           debug: finalOptions.debug,
+          browserType,
         };
         const launched = await browser.launchBrowser(browserLaunchOptions);
         if (!launched || !launched.page) {

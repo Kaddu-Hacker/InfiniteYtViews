@@ -7,7 +7,9 @@
     "yt-views-gen": "./bin/cli.js"
   },
   "scripts": {
-    "start": "node bin/cli.js",
+    "setup": "node ./setup.js",
+    "postinstall": "node ./setup.js",
+    "start": "node ./bin/cli.js",
     "test": "jest --detectOpenHandles",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
