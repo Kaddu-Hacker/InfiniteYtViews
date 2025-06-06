@@ -1,0 +1,7 @@
+{
+  "os": "Linux",
+  "backend": "Chromium/Puppeteer",
+  "torPath": "/usr/bin/tor",
+  "browserPath": "",
+  "seleniumDriverPath": ""
+}

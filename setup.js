@@ -33,6 +33,33 @@ function tryCommand(cmd, args, options = {}) {
   }
 }
 
+// Helper to check if a node module is installed, and auto-install if missing
+async function ensureModuleInstalled(moduleName, installCmd) {
+  try {
+    require.resolve(moduleName);
+    return true;
+  } catch (e) {
+    const { install } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'install',
+      message: `Module "${moduleName}" is required but not installed. Install it now?`,
+      default: true,
+    }]);
+    if (install) {
+      const result = spawnSync('npm', ['install', ...installCmd.split(' ').slice(2)], { stdio: 'inherit' });
+      if (result.status === 0) {
+        return true;
+      } else {
+        console.error(`[ERROR] Failed to install ${moduleName}. Please install it manually.`);
+        process.exit(1);
+      }
+    } else {
+      console.error(`[ERROR] ${moduleName} is required. Exiting.`);
+      process.exit(1);
+    }
+  }
+}
+
 async function main() {
   const detectedOS = await detectOS();
   const { osChoice } = await inquirer.prompt([{
@@ -63,6 +90,34 @@ async function main() {
   let seleniumDriverPath = '';
 
   if (autoInstall) {
+    // Backend-specific dependency check and auto-install
+    if (backend === 'Selenium (Chrome/Firefox)') {
+      const seleniumOk = await ensureModuleInstalled('selenium-webdriver', 'npm install selenium-webdriver');
+      if (!seleniumOk) {
+        // Try Puppeteer as fallback
+        const puppeteerOk = await ensureModuleInstalled('puppeteer', 'npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth');
+        if (puppeteerOk) {
+          backend = 'Chromium/Puppeteer';
+          console.log('[INFO] Falling back to Puppeteer backend.');
+        } else {
+          console.error('[ERROR] Could not install Selenium or Puppeteer. Exiting.');
+          process.exit(1);
+        }
+      }
+    } else if (backend === 'Chromium/Puppeteer') {
+      const puppeteerOk = await ensureModuleInstalled('puppeteer', 'npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth');
+      if (!puppeteerOk) {
+        // Try Selenium as fallback
+        const seleniumOk = await ensureModuleInstalled('selenium-webdriver', 'npm install selenium-webdriver');
+        if (seleniumOk) {
+          backend = 'Selenium (Chrome/Firefox)';
+          console.log('[INFO] Falling back to Selenium backend.');
+        } else {
+          console.error('[ERROR] Could not install Puppeteer or Selenium. Exiting.');
+          process.exit(1);
+        }
+      }
+    }
     // Tor install
     if (osChoice === 'Windows') {
       console.log('[INFO] Please download and install Tor Browser from https://www.torproject.org/download/');
@@ -81,15 +136,14 @@ async function main() {
       tryCommand('pkg', ['install', '-y', 'tor']);
       torPath = '/data/data/com.termux/files/usr/bin/tor';
     }
-    // Browser install
+    // Browser/driver install for selected backend only
     if (backend === 'Chromium/Puppeteer') {
       if (osChoice === 'Windows') {
         console.log('[INFO] Puppeteer will auto-download Chromium on first run.');
         browserPath = '';
       } else if (osChoice === 'Linux') {
-        console.log('[INFO] Installing Chromium using apt...');
-        tryCommand('sudo', ['apt', 'install', '-y', 'chromium-browser']);
-        browserPath = '/usr/bin/chromium-browser';
+        // On Linux, let Puppeteer use its own Chromium unless user provides a real path
+        browserPath = '';
       } else if (osChoice === 'macOS') {
         console.log('[INFO] Installing Chromium using brew...');
         tryCommand('brew', ['install', '--cask', 'chromium']);
@@ -100,7 +154,7 @@ async function main() {
         browserPath = '/data/data/com.termux/files/usr/bin/chromium';
       }
     } else if (backend === 'Selenium (Chrome/Firefox)') {
-      // Selenium driver install
+      // Selenium driver install only
       if (osChoice === 'Windows') {
         console.log('[INFO] Please download ChromeDriver or GeckoDriver for Selenium and provide the path.');
         seleniumDriverPath = '';
